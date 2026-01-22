@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, type CSSProperties } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -169,7 +169,7 @@ export const FamilyTreeApp: React.FC = () => {
         source: edge.source,
         target: edge.target,
         type: 'parent-child',
-        style: edge.style,
+　　　　style: toRelationshipEdgeStyle(edge.style),
         label: edge.label as string | undefined,
       })),
     };
@@ -608,3 +608,26 @@ export const FamilyTreeApp: React.FC = () => {
     </div>
   );
 };
+const toRelationshipEdgeStyle = (style?: CSSProperties) => {
+  if (!style) return undefined;
+
+  const stroke = typeof style.stroke === "string" ? style.stroke : undefined;
+
+  const sw = style.strokeWidth;
+  const strokeWidth =
+    typeof sw === "number"
+      ? sw
+      : typeof sw === "string"
+        ? Number(sw)
+        : undefined;
+
+  const strokeDasharray =
+    typeof style.strokeDasharray === "string" ? style.strokeDasharray : undefined;
+
+  return {
+    stroke,
+    strokeWidth: Number.isFinite(strokeWidth as number) ? (strokeWidth as number) : undefined,
+    strokeDasharray,
+  };
+};
+
