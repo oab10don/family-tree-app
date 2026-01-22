@@ -367,17 +367,24 @@ export const FamilyTreeApp: React.FC = () => {
   );
 
   // エッジを接続
-  const onConnect = useCallback(
-    (params: Connection) => {
-      const newEdge: Edge = {
-        ...params,
-        id: `e${params.source}-${params.target}`,
-        type: 'smoothstep',
-      };
-      setEdges((eds) => addEdge(newEdge, eds));
-    },
-    [setEdges]
-  );
+const onConnect = useCallback(
+  (params: Connection) => {
+    // Connection は source/target が null の可能性があるのでガード
+    if (!params.source || !params.target) return;
+
+    const newEdge: Edge = {
+      id: `e${params.source}-${params.target}`,
+      type: 'smoothstep',
+      source: params.source,
+      target: params.target,
+      sourceHandle: params.sourceHandle ?? null,
+      targetHandle: params.targetHandle ?? null,
+    };
+
+    setEdges((eds) => addEdge(newEdge, eds));
+  },
+  [setEdges]
+);
 
   // 検索処理
   const handleSearch = useCallback((query: string) => {
