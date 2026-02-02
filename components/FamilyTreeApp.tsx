@@ -15,7 +15,7 @@ import 'reactflow/dist/style.css';
 import { toPng } from 'html-to-image';
 import { ChevronDown, ChevronUp, Pencil } from 'lucide-react';
 
-import { PersonNode } from './PersonNode';
+import { PersonNode, JunctionNode } from './PersonNode';
 import { Sidebar } from './Sidebar';
 import { PersonEditDialog } from './PersonEditDialog';
 import {
@@ -31,6 +31,7 @@ import { Button } from './ui/button';
 
 const nodeTypes: NodeTypes = {
   person: PersonNode,
+  junction: JunctionNode,
 };
 
 /**
@@ -346,25 +347,15 @@ const buildFlowElements = (
         const pos2 = positions.get(parentIds[1]);
         if (pos1 && pos2) {
           const jId = `junction-${pairKey}`;
-          // 両親ノードの中点（ノード中心を想定してx方向は平均）
+          // 両親の中点x（= 親ペアユニットのcenterX）、同じy座標
           const jx = (pos1.x + pos2.x) / 2;
-          const jy = pos1.y + 40; // 親ノードの少し下（配偶者線の高さ付近）
+          const jy = pos1.y;
 
           junctionNodes.push({
             id: jId,
-            type: 'default',
-            position: { x: jx + 55, y: jy }, // +55 ≈ ノード幅の半分
-            data: {},
-            style: {
-              width: 2,
-              height: 2,
-              background: '#6b7280',
-              border: 'none',
-              borderRadius: '50%',
-              padding: 0,
-              minHeight: 0,
-              minWidth: 0,
-            },
+            type: 'junction',
+            position: { x: jx, y: jy },
+            data: { label: '' },
             selectable: false,
             draggable: false,
           });

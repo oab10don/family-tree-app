@@ -175,3 +175,18 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
     </>
   );
 };
+
+/**
+ * 配偶者線の中点に配置する透明ジャンクションノード。
+ * PersonNodeと同じ min-w を持つことでハンドル中心が子ノードと揃う。
+ */
+export const JunctionNode: React.FC<NodeProps> = () => {
+  return (
+    <div
+      className="min-w-[100px] sm:min-w-[120px]"
+      style={{ height: 2, opacity: 0, pointerEvents: 'none' }}
+    >
+      <Handle type="source" position={Position.Bottom} className="opacity-0" />
+    </div>
+  );
+};
