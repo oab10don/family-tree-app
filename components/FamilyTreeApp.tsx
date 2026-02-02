@@ -119,7 +119,9 @@ const sortSiblings = (persons: PersonData[]): PersonData[] => {
 
 /**
  * グラフ走査ベースのレイアウト計算
- * 兄弟は誕生日昇順でソートされる
+ * - BFSで世代を算出
+ * - 子を親ペアの中央下に配置
+ * - 兄弟は誕生日昇順
  */
 const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: number }> => {
   const positions = new Map<string, { x: number; y: number }>();
@@ -129,14 +131,14 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
   const SPOUSE_GAP = isMobile ? 100 : 140;
   const SIBLING_GAP = isMobile ? 130 : 180;
   const GENERATION_GAP = isMobile ? 160 : 200;
+  const NODE_WIDTH = isMobile ? 100 : 120; // ノード概算幅
 
-  // 兄弟ソート適用
   const sorted = sortSiblings(persons);
 
   const personMap = new Map<string, PersonData>();
   for (const p of sorted) personMap.set(p.id, p);
 
-  // BFS世代算出
+  // --- BFS世代算出 ---
   const generationOf = new Map<string, number>();
   const root = sorted.find(p => p.isRepresentative) ?? sorted.find(p => p.relationship === 'self') ?? sorted[0];
   generationOf.set(root.id, 0);
@@ -187,63 +189,118 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
   }
 
   for (const p of sorted) {
-    if (!generationOf.has(p.id)) {
-      generationOf.set(p.id, 0);
-    }
+    if (!generationOf.has(p.id)) generationOf.set(p.id, 0);
   }
 
-  // 世代グループ化（ソート済みの順序を保持）
+  // --- 世代グループ化 ---
   const generations = new Map<number, PersonData[]>();
   for (const p of sorted) {
     const gen = generationOf.get(p.id)!;
     if (!generations.has(gen)) generations.set(gen, []);
     generations.get(gen)!.push(p);
   }
-
   const minGen = Math.min(...generations.keys());
+  const maxGen = Math.max(...generations.keys());
 
+  // 配偶者ペア
   const spousePairs = new Map<string, string>();
   for (const person of sorted) {
-    if (person.spouseId) {
-      spousePairs.set(person.id, person.spouseId);
-    }
+    if (person.spouseId) spousePairs.set(person.id, person.spouseId);
   }
 
-  for (const [gen, genPersons] of generations) {
-    const y = (gen - minGen) * GENERATION_GAP;
+  // --- Pass 1: 最上世代から順にユニットを構築し仮配置 ---
+  // ユニット = 配偶者ペア or 単独
+  type Unit = { ids: string[]; width: number; centerX: number };
+  const genUnits = new Map<number, Unit[]>();
 
+  const sortedGens = Array.from(generations.keys()).sort((a, b) => a - b);
+
+  for (const gen of sortedGens) {
+    const genPersons = generations.get(gen)!;
     const placed = new Set<string>();
-    const units: { ids: string[]; width: number }[] = [];
+    const units: Unit[] = [];
 
     for (const person of genPersons) {
       if (placed.has(person.id)) continue;
-
       const spouseId = spousePairs.get(person.id);
       if (spouseId && genPersons.some(p => p.id === spouseId) && !placed.has(spouseId)) {
-        units.push({ ids: [person.id, spouseId], width: SPOUSE_GAP });
+        units.push({ ids: [person.id, spouseId], width: SPOUSE_GAP + NODE_WIDTH, centerX: 0 });
         placed.add(person.id);
         placed.add(spouseId);
       } else {
-        units.push({ ids: [person.id], width: 0 });
+        units.push({ ids: [person.id], width: NODE_WIDTH, centerX: 0 });
         placed.add(person.id);
       }
     }
+    genUnits.set(gen, units);
+  }
 
-    const totalWidth = units.reduce((sum, u, i) => {
-      return sum + u.width + (i > 0 ? SIBLING_GAP : 0);
-    }, 0);
-    let currentX = -totalWidth / 2;
-
+  // --- Pass 2: ボトムアップで子の位置を親中央に揃える ---
+  // まず最上世代を仮配置
+  const placeUnits = (units: Unit[]) => {
+    let currentX = 0;
     for (let i = 0; i < units.length; i++) {
-      const unit = units[i];
       if (i > 0) currentX += SIBLING_GAP;
+      units[i].centerX = currentX + units[i].width / 2;
+      currentX += units[i].width;
+    }
+    // 中央揃え
+    const totalWidth = currentX;
+    const offset = totalWidth / 2;
+    for (const u of units) u.centerX -= offset;
+  };
 
+  // 最上世代を仮配置
+  const topUnits = genUnits.get(sortedGens[0]);
+  if (topUnits) placeUnits(topUnits);
+
+  // 上→下に、親の中央を基準に子を配置
+  for (let gi = 1; gi < sortedGens.length; gi++) {
+    const gen = sortedGens[gi];
+    const units = genUnits.get(gen)!;
+    const parentGen = sortedGens[gi - 1];
+    const parentUnits = genUnits.get(parentGen);
+
+    // 各ユニットの理想位置（親の中央）を計算
+    for (const unit of units) {
+      const parentPositions: number[] = [];
+      for (const id of unit.ids) {
+        const person = personMap.get(id);
+        if (person?.parentIds) {
+          for (const pid of person.parentIds) {
+            // 親がいるユニットの中心を探す
+            if (parentUnits) {
+              const pu = parentUnits.find(u => u.ids.includes(pid));
+              if (pu) parentPositions.push(pu.centerX);
+            }
+          }
+        }
+      }
+      if (parentPositions.length > 0) {
+        const avgX = parentPositions.reduce((a, b) => a + b, 0) / parentPositions.length;
+        unit.centerX = avgX;
+      }
+    }
+
+    // 重なり解消: 左から順にSIBLING_GAP以上の間隔を保証
+    units.sort((a, b) => a.centerX - b.centerX);
+    for (let i = 1; i < units.length; i++) {
+      const minX = units[i - 1].centerX + units[i - 1].width / 2 + SIBLING_GAP + units[i].width / 2;
+      if (units[i].centerX < minX) {
+        units[i].centerX = minX;
+      }
+    }
+  }
+
+  // --- Pass 3: ユニットからノード位置を確定 ---
+  for (const [gen, units] of genUnits) {
+    const y = (gen - minGen) * GENERATION_GAP;
+    for (const unit of units) {
       if (unit.ids.length === 2) {
-        positions.set(unit.ids[0], { x: currentX, y });
-        positions.set(unit.ids[1], { x: currentX + SPOUSE_GAP, y });
-        currentX += SPOUSE_GAP;
+        positions.set(unit.ids[0], { x: unit.centerX - SPOUSE_GAP / 2, y });
+        positions.set(unit.ids[1], { x: unit.centerX + SPOUSE_GAP / 2, y });
       } else {
-        positions.set(unit.ids[0], { x: currentX, y });
+        positions.set(unit.ids[0], { x: unit.centerX, y });
       }
     }
   }
@@ -253,103 +310,31 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
 
 /**
  * RelationshipEdge[] → ReactFlow Edge[] に変換
- * 親2人→子の場合、両親ペアの中点から子へ接続するよう中間ノードを追加
  */
-const toFlowElements = (
-  relEdges: RelationshipEdge[],
-  positions: Map<string, { x: number; y: number }>
-): { edges: Edge[]; midpointNodes: Node[] } => {
-  const edges: Edge[] = [];
-  const midpointNodes: Node[] = [];
-
-  // 子ごとに親をグループ化
-  const childParentMap = new Map<string, string[]>();
-  const spouseEdges: RelationshipEdge[] = [];
-
-  for (const edge of relEdges) {
+const toFlowEdges = (relEdges: RelationshipEdge[]): Edge[] => {
+  return relEdges.map((edge) => {
     if (edge.type === 'spouse') {
-      spouseEdges.push(edge);
-    } else {
-      if (!childParentMap.has(edge.target)) childParentMap.set(edge.target, []);
-      childParentMap.get(edge.target)!.push(edge.source);
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: 'straight',
+        sourceHandle: 'right-source',
+        targetHandle: 'left-target',
+        style: { stroke: '#e11d48', strokeWidth: 4 },
+        label: edge.label,
+      };
     }
-  }
-
-  // 配偶者エッジ
-  for (const edge of spouseEdges) {
-    edges.push({
+    // parent-child
+    return {
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      type: 'straight',
-      sourceHandle: 'right-source',
-      targetHandle: 'left-target',
-      style: { stroke: '#e11d48', strokeWidth: 4 },
+      type: 'smoothstep',
+      style: { stroke: '#6b7280', strokeWidth: 2 },
       label: edge.label,
-    });
-  }
-
-  // 親子エッジ: 親が2人の場合は中点ノードを作成
-  const processedChildren = new Set<string>();
-  for (const [childId, parentIds] of childParentMap) {
-    if (processedChildren.has(childId)) continue;
-    processedChildren.add(childId);
-
-    if (parentIds.length === 2) {
-      const pos1 = positions.get(parentIds[0]);
-      const pos2 = positions.get(parentIds[1]);
-      const childPos = positions.get(childId);
-
-      if (pos1 && pos2 && childPos) {
-        const midX = (pos1.x + pos2.x) / 2 + 60; // ノード幅の半分を考慮
-        const midY = pos1.y + 50; // 親ノードの下部付近
-        const midNodeId = `mid-${parentIds.sort().join('-')}-${childId}`;
-
-        midpointNodes.push({
-          id: midNodeId,
-          type: 'default',
-          position: { x: midX, y: midY },
-          data: {},
-          style: { width: 1, height: 1, opacity: 0, pointerEvents: 'none' },
-          selectable: false,
-          draggable: false,
-        });
-
-        // 各親 → 中点
-        for (const pid of parentIds) {
-          edges.push({
-            id: `e-${pid}-${midNodeId}`,
-            source: pid,
-            target: midNodeId,
-            type: 'straight',
-            style: { stroke: '#6b7280', strokeWidth: 2 },
-          });
-        }
-
-        // 中点 → 子
-        edges.push({
-          id: `e-${midNodeId}-${childId}`,
-          source: midNodeId,
-          target: childId,
-          type: 'smoothstep',
-          style: { stroke: '#6b7280', strokeWidth: 2 },
-        });
-      }
-    } else {
-      // 親が1人
-      for (const pid of parentIds) {
-        edges.push({
-          id: `e${pid}-${childId}`,
-          source: pid,
-          target: childId,
-          type: 'smoothstep',
-          style: { stroke: '#6b7280', strokeWidth: 2 },
-        });
-      }
-    }
-  }
-
-  return { edges, midpointNodes };
+    };
+  });
 };
 
 /**
@@ -457,7 +442,7 @@ export const FamilyTreeApp: React.FC = () => {
     personsRef.current = persons;
     const positions = calculateLayout(persons);
     const relEdges = generateEdgesFromPersons(persons);
-    const { edges: flowEdges, midpointNodes } = toFlowElements(relEdges, positions);
+    const flowEdges = toFlowEdges(relEdges);
 
     const personNodes: Node[] = persons.map((person) => ({
       id: person.id,
@@ -470,7 +455,7 @@ export const FamilyTreeApp: React.FC = () => {
       },
     }));
 
-    setNodes([...personNodes, ...midpointNodes]);
+    setNodes(personNodes);
     setEdges(flowEdges);
   }, [setNodes, setEdges]);
 
