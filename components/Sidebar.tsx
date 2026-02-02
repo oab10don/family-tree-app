@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Switch } from './ui/switch';
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
-import { Download, Upload, RotateCcw, FileJson, Users, Search, Undo2, Redo2, UserPlus } from 'lucide-react';
+import { Download, Upload, RotateCcw, FileJson, Search, Undo2, Redo2, UserPlus, Menu, X } from 'lucide-react';
 import { DisplaySettings } from '@/types/familyTree';
 
 interface SidebarProps {
@@ -14,7 +14,6 @@ interface SidebarProps {
   onImportJSON: () => void;
   onExportImage: () => void;
   onReset: () => void;
-  onOpenGroupManagement: () => void;
   onAddPerson: () => void;
   onSearch: (query: string) => void;
   onUndo: () => void;
@@ -30,7 +29,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onImportJSON,
   onExportImage,
   onReset,
-  onOpenGroupManagement,
   onAddPerson,
   onSearch,
   onUndo,
@@ -39,15 +37,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   canRedo,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
     onSearch(value);
   };
 
-  return (
-    <aside className="w-80 bg-gray-100 p-4 border-r border-gray-200 flex flex-col gap-4 overflow-y-auto h-full">
-      {/* 検索バー */}
+  const sidebarContent = (
+    <>
       <div className="space-y-2">
         <Label>検索</Label>
         <div className="relative">
@@ -63,7 +61,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="border-t border-gray-300" />
 
-      {/* 新規追加 */}
       <Button
         onClick={onAddPerson}
         className="w-full justify-start bg-primary text-white hover:bg-primary/90"
@@ -74,7 +71,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="border-t border-gray-300" />
 
-      {/* Undo/Redo */}
       <div className="flex gap-2">
         <Button
           onClick={onUndo}
@@ -100,22 +96,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="border-t border-gray-300" />
 
-      {/* グループ管理 */}
-      <Button
-        onClick={onOpenGroupManagement}
-        variant="outline"
-        className="w-full justify-start"
-      >
-        <Users className="w-4 h-4 mr-2" />
-        グループ管理
-      </Button>
-
-      <div className="border-t border-gray-300" />
-
-      {/* 表示オプション */}
       <div className="space-y-3">
         <h4 className="font-semibold">表示オプション</h4>
-        
+
         <div className="space-y-2 p-2">
           <div className="flex items-center justify-between py-1">
             <Label htmlFor="color-switch">性別で色分け</Label>
@@ -134,7 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 id="show-photo"
                 checked={settings.showPhoto}
                 onCheckedChange={(checked) =>
-                  onSettingsChange({ ...settings, showPhoto: checked })
+                  onSettingsChange({ ...settings, showPhoto: checked as boolean })
                 }
               />
               <Label htmlFor="show-photo" className="text-xs">
@@ -147,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 id="show-name"
                 checked={settings.showName}
                 onCheckedChange={(checked) =>
-                  onSettingsChange({ ...settings, showName: checked })
+                  onSettingsChange({ ...settings, showName: checked as boolean })
                 }
               />
               <Label htmlFor="show-name" className="text-xs">
@@ -157,23 +140,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <div className="flex items-center space-x-2">
               <Checkbox
-                id="show-subtitle"
-                checked={settings.showSubtitle}
-                onCheckedChange={(checked) =>
-                  onSettingsChange({ ...settings, showSubtitle: checked })
-                }
-              />
-              <Label htmlFor="show-subtitle" className="text-xs">
-                サブタイトル
-              </Label>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
                 id="show-birth-death"
                 checked={settings.showBirthDeath}
                 onCheckedChange={(checked) =>
-                  onSettingsChange({ ...settings, showBirthDeath: checked })
+                  onSettingsChange({ ...settings, showBirthDeath: checked as boolean })
                 }
               />
               <Label htmlFor="show-birth-death" className="text-xs">
@@ -183,23 +153,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <div className="flex items-center space-x-2">
               <Checkbox
-                id="show-affiliation"
-                checked={settings.showAffiliation}
-                onCheckedChange={(checked) =>
-                  onSettingsChange({ ...settings, showAffiliation: checked })
-                }
-              />
-              <Label htmlFor="show-affiliation" className="text-xs">
-                所属
-              </Label>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
                 id="show-notes"
                 checked={settings.showNotes}
                 onCheckedChange={(checked) =>
-                  onSettingsChange({ ...settings, showNotes: checked })
+                  onSettingsChange({ ...settings, showNotes: checked as boolean })
                 }
               />
               <Label htmlFor="show-notes" className="text-xs">
@@ -212,10 +169,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="border-t border-gray-300" />
 
-      {/* 保存 & 読込 */}
       <div className="space-y-2">
         <h4 className="font-semibold pt-2">保存 & 読込</h4>
-        
+
         <Button
           onClick={onExportJSON}
           variant="outline"
@@ -252,6 +208,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
           全体をリセット
         </Button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* モバイル: ハンバーガーボタン */}
+      <button
+        onClick={() => setIsOpen(true)}
+        className="md:hidden fixed top-4 left-4 z-50 bg-white p-2 rounded-lg shadow-lg border border-gray-200"
+      >
+        <Menu className="w-6 h-6" />
+      </button>
+
+      {/* モバイル: オーバーレイ */}
+      {isOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
+
+      {/* サイドバー本体 */}
+      <aside
+        className={`
+          fixed md:static inset-y-0 left-0 z-50
+          w-80 bg-gray-100 p-4 border-r border-gray-200
+          flex flex-col gap-4 overflow-y-auto h-full
+          transform transition-transform duration-200 ease-in-out
+          ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+      >
+        {/* モバイル: 閉じるボタン */}
+        <div className="flex justify-end md:hidden">
+          <button onClick={() => setIsOpen(false)} className="text-gray-500 hover:text-gray-700">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {sidebarContent}
+      </aside>
+    </>
   );
 };

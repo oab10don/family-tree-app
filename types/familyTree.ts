@@ -1,5 +1,5 @@
 // 続柄の型
-export type Relationship = 
+export type Relationship =
   | 'self' // 本人
   | 'father' // 父
   | 'mother' // 母
@@ -15,29 +15,20 @@ export type Relationship =
 // 生存状態の型
 export type LifeStatus = 'alive' | 'deceased' | 'unknown';
 
-// グループの型
-export interface Group {
-  id: string;
-  name: string;
-  color: string;
-  notes?: string;
-}
-
 // 人物のデータ型
 export interface PersonData {
   id: string;
   name: string;
   gender: 'male' | 'female' | 'other';
   lifeStatus: LifeStatus;
-  relationship: Relationship; // 続柄
+  relationship: Relationship;
   birthDate?: string;
   deathDate?: string;
   photo?: string;
-  subtitle?: string;
-  affiliation?: string;
   notes?: string;
-  groupIds: string[]; // 所属グループのID配列
-  isRepresentative?: boolean; // 代表者フラグ
+  isRepresentative?: boolean;
+  parentIds?: string[];
+  spouseId?: string;
 }
 
 // ノードのデータ型
@@ -50,7 +41,7 @@ export interface RelationshipEdge {
   id: string;
   source: string;
   target: string;
-  type: 'parent-child';
+  type: 'parent-child' | 'spouse';
   style?: {
     stroke?: string;
     strokeWidth?: number;
@@ -63,9 +54,7 @@ export interface RelationshipEdge {
 export interface DisplaySettings {
   showPhoto: boolean;
   showName: boolean;
-  showSubtitle: boolean;
   showBirthDeath: boolean;
-  showAffiliation: boolean;
   showNotes: boolean;
   colorByGender: boolean;
 }
@@ -74,7 +63,6 @@ export interface DisplaySettings {
 export interface FamilyTreeData {
   nodes: PersonData[];
   edges: RelationshipEdge[];
-  groups: Group[];
   settings: DisplaySettings;
   version: string;
 }
@@ -83,9 +71,7 @@ export interface FamilyTreeData {
 export const defaultSettings: DisplaySettings = {
   showPhoto: false,
   showName: true,
-  showSubtitle: true,
   showBirthDeath: true,
-  showAffiliation: false,
   showNotes: false,
   colorByGender: true,
 };
@@ -94,20 +80,6 @@ export const defaultSettings: DisplaySettings = {
 export const sampleData: FamilyTreeData = {
   version: '1.0.0',
   settings: defaultSettings,
-  groups: [
-    {
-      id: 'g1',
-      name: '同居家族',
-      color: '#3b82f6',
-      notes: '現在同居している家族'
-    },
-    {
-      id: 'g2',
-      name: '故人',
-      color: '#6b7280',
-      notes: ''
-    }
-  ],
   nodes: [
     {
       id: '1',
@@ -117,9 +89,8 @@ export const sampleData: FamilyTreeData = {
       relationship: 'grandfather_paternal',
       birthDate: '1930',
       deathDate: '2010',
-      subtitle: '初代',
-      groupIds: ['g2'],
       isRepresentative: true,
+      spouseId: '2',
     },
     {
       id: '2',
@@ -129,7 +100,7 @@ export const sampleData: FamilyTreeData = {
       relationship: 'grandmother_paternal',
       birthDate: '1935',
       deathDate: '2015',
-      groupIds: ['g2'],
+      spouseId: '1',
     },
     {
       id: '3',
@@ -138,8 +109,8 @@ export const sampleData: FamilyTreeData = {
       lifeStatus: 'alive',
       relationship: 'father',
       birthDate: '1960',
-      subtitle: '二代目',
-      groupIds: ['g1'],
+      parentIds: ['1', '2'],
+      spouseId: '4',
     },
     {
       id: '4',
@@ -148,7 +119,7 @@ export const sampleData: FamilyTreeData = {
       lifeStatus: 'alive',
       relationship: 'mother',
       birthDate: '1962',
-      groupIds: ['g1'],
+      spouseId: '3',
     },
     {
       id: '5',
@@ -157,7 +128,7 @@ export const sampleData: FamilyTreeData = {
       lifeStatus: 'alive',
       relationship: 'self',
       birthDate: '1990',
-      groupIds: ['g1'],
+      parentIds: ['3', '4'],
     },
   ],
   edges: [
@@ -184,6 +155,18 @@ export const sampleData: FamilyTreeData = {
       source: '4',
       target: '5',
       type: 'parent-child',
+    },
+    {
+      id: 'spouse-1-2',
+      source: '1',
+      target: '2',
+      type: 'spouse',
+    },
+    {
+      id: 'spouse-3-4',
+      source: '3',
+      target: '4',
+      type: 'spouse',
     },
   ],
 };

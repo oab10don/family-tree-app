@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect, type CSSProperties } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -8,8 +8,6 @@ import ReactFlow, {
   Background,
   useNodesState,
   useEdgesState,
-  addEdge,
-  Connection,
   NodeTypes,
   ReactFlowInstance,
 } from 'reactflow';
@@ -19,12 +17,11 @@ import { toPng } from 'html-to-image';
 import { PersonNode } from './PersonNode';
 import { Sidebar } from './Sidebar';
 import { PersonEditDialog } from './PersonEditDialog';
-import { GroupManagementDialog } from './GroupManagementDialog';
 import {
   PersonData,
+  RelationshipEdge,
   DisplaySettings,
   FamilyTreeData,
-  Group,
   sampleData,
   defaultSettings,
 } from '@/types/familyTree';
@@ -33,35 +30,247 @@ const nodeTypes: NodeTypes = {
   person: PersonNode,
 };
 
-// 履歴管理用の型
 interface HistoryState {
   nodes: Node[];
   edges: Edge[];
-  groups: Group[];
 }
+
+/**
+ * parentIds / spouseId からエッジを自動生成する
+ */
+const generateEdgesFromPersons = (persons: PersonData[]): RelationshipEdge[] => {
+  const edges: RelationshipEdge[] = [];
+  const spouseEdgeSet = new Set<string>();
+
+  for (const person of persons) {
+    // 親子エッジ
+    if (person.parentIds) {
+      for (const parentId of person.parentIds) {
+        edges.push({
+          id: `e${parentId}-${person.id}`,
+          source: parentId,
+          target: person.id,
+          type: 'parent-child',
+        });
+      }
+    }
+
+    // 配偶者エッジ（重複防止）
+    if (person.spouseId) {
+      const key = [person.id, person.spouseId].sort().join('-');
+      if (!spouseEdgeSet.has(key)) {
+        spouseEdgeSet.add(key);
+        edges.push({
+          id: `spouse-${key}`,
+          source: person.id,
+          target: person.spouseId,
+          type: 'spouse',
+        });
+      }
+    }
+  }
+
+  return edges;
+};
+
+/**
+ * グラフ走査ベースのレイアウト計算
+ * parentIds/spouseIdの関係性を辿り世代を自動算出する
+ */
+const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: number }> => {
+  const positions = new Map<string, { x: number; y: number }>();
+  if (persons.length === 0) return positions;
+
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const SPOUSE_GAP = isMobile ? 100 : 140;
+  const SIBLING_GAP = isMobile ? 130 : 180;
+  const GENERATION_GAP = isMobile ? 160 : 200;
+
+  const personMap = new Map<string, PersonData>();
+  for (const p of persons) personMap.set(p.id, p);
+
+  // --- 世代をグラフ走査で算出 ---
+  const generationOf = new Map<string, number>();
+
+  // 基準人物を決定: isRepresentative or relationship==='self' or 最初の人物
+  const root = persons.find(p => p.isRepresentative) ?? persons.find(p => p.relationship === 'self') ?? persons[0];
+  generationOf.set(root.id, 0);
+
+  // BFSで親→子・配偶者を辿る
+  const queue: string[] = [root.id];
+  const visited = new Set<string>([root.id]);
+
+  // 子IDマップ: parentId → childId[]
+  const childrenOf = new Map<string, string[]>();
+  for (const p of persons) {
+    if (p.parentIds) {
+      for (const pid of p.parentIds) {
+        if (!childrenOf.has(pid)) childrenOf.set(pid, []);
+        childrenOf.get(pid)!.push(p.id);
+      }
+    }
+  }
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const currentGen = generationOf.get(currentId)!;
+    const current = personMap.get(currentId);
+    if (!current) continue;
+
+    // 親を上の世代に
+    if (current.parentIds) {
+      for (const pid of current.parentIds) {
+        if (!visited.has(pid) && personMap.has(pid)) {
+          generationOf.set(pid, currentGen - 1);
+          visited.add(pid);
+          queue.push(pid);
+        }
+      }
+    }
+
+    // 子を下の世代に
+    const children = childrenOf.get(currentId) ?? [];
+    for (const cid of children) {
+      if (!visited.has(cid) && personMap.has(cid)) {
+        generationOf.set(cid, currentGen + 1);
+        visited.add(cid);
+        queue.push(cid);
+      }
+    }
+
+    // 配偶者を同世代に
+    if (current.spouseId && !visited.has(current.spouseId) && personMap.has(current.spouseId)) {
+      generationOf.set(current.spouseId, currentGen);
+      visited.add(current.spouseId);
+      queue.push(current.spouseId);
+    }
+  }
+
+  // BFSで到達できなかった人物にフォールバック世代を割り当て
+  for (const p of persons) {
+    if (!generationOf.has(p.id)) {
+      generationOf.set(p.id, 0);
+    }
+  }
+
+  // --- 世代ごとにグループ化 ---
+  const generations = new Map<number, PersonData[]>();
+  for (const p of persons) {
+    const gen = generationOf.get(p.id)!;
+    if (!generations.has(gen)) generations.set(gen, []);
+    generations.get(gen)!.push(p);
+  }
+
+  // 世代番号を正規化 (最小世代を0にする)
+  const minGen = Math.min(...generations.keys());
+
+  // 配偶者ペアを特定
+  const spousePairs = new Map<string, string>();
+  for (const person of persons) {
+    if (person.spouseId) {
+      spousePairs.set(person.id, person.spouseId);
+    }
+  }
+
+  // --- 各世代を配置 ---
+  for (const [gen, genPersons] of generations) {
+    const y = (gen - minGen) * GENERATION_GAP;
+
+    const placed = new Set<string>();
+    const units: { ids: string[]; width: number }[] = [];
+
+    for (const person of genPersons) {
+      if (placed.has(person.id)) continue;
+
+      const spouseId = spousePairs.get(person.id);
+      if (spouseId && genPersons.some(p => p.id === spouseId) && !placed.has(spouseId)) {
+        units.push({ ids: [person.id, spouseId], width: SPOUSE_GAP });
+        placed.add(person.id);
+        placed.add(spouseId);
+      } else {
+        units.push({ ids: [person.id], width: 0 });
+        placed.add(person.id);
+      }
+    }
+
+    const totalWidth = units.reduce((sum, u, i) => {
+      return sum + u.width + (i > 0 ? SIBLING_GAP : 0);
+    }, 0);
+    let currentX = -totalWidth / 2;
+
+    for (let i = 0; i < units.length; i++) {
+      const unit = units[i];
+      if (i > 0) currentX += SIBLING_GAP;
+
+      if (unit.ids.length === 2) {
+        positions.set(unit.ids[0], { x: currentX, y });
+        positions.set(unit.ids[1], { x: currentX + SPOUSE_GAP, y });
+        currentX += SPOUSE_GAP;
+      } else {
+        positions.set(unit.ids[0], { x: currentX, y });
+      }
+    }
+  }
+
+  return positions;
+};
+
+/**
+ * RelationshipEdge[] → ReactFlow Edge[] に変換
+ */
+const toFlowEdges = (relEdges: RelationshipEdge[]): Edge[] => {
+  return relEdges.map((edge) => {
+    if (edge.type === 'spouse') {
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: 'straight',
+        sourceHandle: 'right-source',
+        targetHandle: 'left-target',
+        style: {
+          stroke: '#e11d48',
+          strokeWidth: 4,
+        },
+        label: edge.label,
+      };
+    }
+    // parent-child: bottom → top を明示
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      type: 'smoothstep',
+      sourceHandle: undefined, // default bottom
+      targetHandle: undefined, // default top
+      style: {
+        stroke: '#6b7280',
+        strokeWidth: 2,
+      },
+      pathOptions: { offset: 15 },
+      label: edge.label,
+    };
+  });
+};
 
 export const FamilyTreeApp: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [groups, setGroups] = useState<Group[]>([]);
   const [settings, setSettings] = useState<DisplaySettings>(defaultSettings);
   const [selectedPerson, setSelectedPerson] = useState<PersonData | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
-  
+
   const flowRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Undo/Redo用の履歴管理
+  // Undo/Redo
   const [history, setHistory] = useState<HistoryState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const isUndoRedoAction = useRef(false);
 
-  // 初期データの読み込み
   useEffect(() => {
-    // 自動保存されたデータがあれば読み込む
     const autoSaved = localStorage.getItem('familyTreeAutoSave');
     if (autoSaved) {
       try {
@@ -77,44 +286,37 @@ export const FamilyTreeApp: React.FC = () => {
     loadData(sampleData);
   }, []);
 
-  // 自動保存（5秒ごと）
   useEffect(() => {
     const autoSaveInterval = setInterval(() => {
       const data = getCurrentData();
       localStorage.setItem('familyTreeAutoSave', JSON.stringify(data));
     }, 5000);
-
     return () => clearInterval(autoSaveInterval);
-  }, [nodes, edges, groups, settings]);
+  }, [nodes, edges, settings]);
 
-  // 履歴保存（変更があったとき）
   useEffect(() => {
     if (isUndoRedoAction.current) {
       isUndoRedoAction.current = false;
       return;
     }
-
     if (nodes.length === 0) return;
 
     const newHistoryState: HistoryState = {
       nodes: JSON.parse(JSON.stringify(nodes)),
       edges: JSON.parse(JSON.stringify(edges)),
-      groups: JSON.parse(JSON.stringify(groups)),
     };
 
     const newHistory = history.slice(0, historyIndex + 1);
     newHistory.push(newHistoryState);
-    
+
     if (newHistory.length > 50) {
       newHistory.shift();
     } else {
       setHistoryIndex(historyIndex + 1);
     }
-    
     setHistory(newHistory);
-  }, [nodes, edges, groups]);
+  }, [nodes, edges]);
 
-  // キーボードショートカット
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
@@ -125,137 +327,73 @@ export const FamilyTreeApp: React.FC = () => {
         handleRedo();
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [historyIndex, history]);
 
-  // Undo処理
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
       isUndoRedoAction.current = true;
       const prevState = history[historyIndex - 1];
       setNodes(prevState.nodes);
       setEdges(prevState.edges);
-      setGroups(prevState.groups);
       setHistoryIndex(historyIndex - 1);
     }
   }, [historyIndex, history, setNodes, setEdges]);
 
-  // Redo処理
   const handleRedo = useCallback(() => {
     if (historyIndex < history.length - 1) {
       isUndoRedoAction.current = true;
       const nextState = history[historyIndex + 1];
       setNodes(nextState.nodes);
       setEdges(nextState.edges);
-      setGroups(nextState.groups);
       setHistoryIndex(historyIndex + 1);
     }
   }, [historyIndex, history, setNodes, setEdges]);
 
-  // 現在のデータを取得
+  /** ノードからPersonData[]を抽出 */
+  const extractPersons = (nds: Node[]): PersonData[] => {
+    return nds.map((node) => {
+      const { settings: _, label: __, ...personData } = node.data;
+      return personData as PersonData;
+    });
+  };
+
   const getCurrentData = (): FamilyTreeData => {
+    const persons = extractPersons(nodes);
     return {
       version: '1.0.0',
       settings,
-      groups,
-      nodes: nodes.map((node) => {
-        const { settings: _, label: __, groupColors: ___, ...personData } = node.data;
-        return personData as PersonData;
-      }),
-      edges: edges.map((edge) => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        type: 'parent-child',
-　　　　style: toRelationshipEdgeStyle(edge.style),
-        label: edge.label as string | undefined,
-      })),
+      nodes: persons,
+      edges: generateEdgesFromPersons(persons),
     };
   };
 
-  // 続柄に基づく自動配置を計算
-  const calculatePositionByRelationship = (person: PersonData, allPersons: PersonData[]): { x: number; y: number } => {
-    const spacing = 280; // 横方向の間隔
-    const verticalSpacing = 220; // 縦方向の間隔
+  /** データからノードとエッジを構築してセット */
+  const buildAndSetNodesEdges = (persons: PersonData[], displaySettings: DisplaySettings) => {
+    const positions = calculateLayout(persons);
+    const relEdges = generateEdgesFromPersons(persons);
 
-    // 続柄ごとの世代レベルと基準位置
-    const relationshipLevels: Record<string, { generation: number; order: number }> = {
-      'grandfather_paternal': { generation: 0, order: 0 },
-      'grandmother_paternal': { generation: 0, order: 1 },
-      'grandfather_maternal': { generation: 0, order: 2 },
-      'grandmother_maternal': { generation: 0, order: 3 },
-      'father': { generation: 1, order: 0 },
-      'mother': { generation: 1, order: 1 },
-      'self': { generation: 2, order: 0 },
-      'spouse': { generation: 2, order: 1 },
-      'sibling': { generation: 2, order: 2 },
-      'child': { generation: 3, order: 0 },
-      'other': { generation: 4, order: 0 },
-    };
-
-    const level = relationshipLevels[person.relationship] || { generation: 4, order: 0 };
-
-    // 同じ世代の人数を数える
-    const sameGeneration = allPersons.filter(p => {
-      const pLevel = relationshipLevels[p.relationship] || { generation: 4, order: 0 };
-      return pLevel.generation === level.generation;
-    });
-
-    // 同じ世代内での順番
-    const indexInGeneration = sameGeneration.findIndex(p => p.id === person.id);
-    
-    // 世代ごとの人数で中央揃え
-    const totalInGeneration = sameGeneration.length;
-    const totalWidth = (totalInGeneration - 1) * spacing;
-    const startX = -totalWidth / 2;
-    
-    // X座標を計算（続柄の順序も考慮）
-    const x = startX + (indexInGeneration * spacing);
-    
-    // Y座標を計算
-    const y = level.generation * verticalSpacing;
-
-    return { x, y };
-  };
-
-  // データを読み込む
-  const loadData = (data: FamilyTreeData) => {
-    setSettings(data.settings);
-    setGroups(data.groups || []);
-    
-    const newNodes: Node[] = data.nodes.map((person, index) => {
-      const groupColors = (person.groupIds || [])
-        .map(gid => data.groups?.find(g => g.id === gid)?.color)
-        .filter(Boolean) as string[];
-
-      const position = calculatePositionByRelationship(person, data.nodes);
-
-      return {
-        id: person.id,
-        type: 'person',
-        position,
-        data: {
-          ...person,
-          label: person.name,
-          settings: data.settings,
-          groupColors,
-        },
-      };
-    });
-
-    const newEdges: Edge[] = (data.edges || []).map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      type: 'smoothstep',
-      style: edge.style || {},
-      label: edge.label,
+    const newNodes: Node[] = persons.map((person) => ({
+      id: person.id,
+      type: 'person',
+      position: positions.get(person.id) || { x: 0, y: 0 },
+      data: {
+        ...person,
+        label: person.name,
+        settings: displaySettings,
+      },
     }));
+
+    const newEdges = toFlowEdges(relEdges);
 
     setNodes(newNodes);
     setEdges(newEdges);
+  };
+
+  const loadData = (data: FamilyTreeData) => {
+    setSettings(data.settings);
+    buildAndSetNodesEdges(data.nodes, data.settings);
   };
 
   // 設定変更時にノードを更新
@@ -263,34 +401,11 @@ export const FamilyTreeApp: React.FC = () => {
     setNodes((nds) =>
       nds.map((node) => ({
         ...node,
-        data: {
-          ...node.data,
-          settings,
-        },
+        data: { ...node.data, settings },
       }))
     );
   }, [settings, setNodes]);
 
-  // グループ変更時にノードの色情報を更新
-  useEffect(() => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        const groupColors = (node.data.groupIds || [])
-          .map((gid: string) => groups.find(g => g.id === gid)?.color)
-          .filter(Boolean) as string[];
-        
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            groupColors,
-          },
-        };
-      })
-    );
-  }, [groups, setNodes]);
-
-  // 新規人物追加
   const handleAddPerson = useCallback(() => {
     const newPerson: PersonData = {
       id: `p${Date.now()}`,
@@ -298,104 +413,38 @@ export const FamilyTreeApp: React.FC = () => {
       gender: 'male',
       lifeStatus: 'alive',
       relationship: 'other',
-      groupIds: [],
       isRepresentative: false,
+      parentIds: [],
     };
 
-    const newNode: Node = {
-      id: newPerson.id,
-      type: 'person',
-      position: { 
-        x: Math.random() * 400 - 200, 
-        y: Math.random() * 300 + 100 
-      },
-      data: {
-        ...newPerson,
-        label: newPerson.name,
-        settings,
-        groupColors: [],
-      },
-    };
+    // 全体再計算
+    const allPersons = [...extractPersons(nodes), newPerson];
+    buildAndSetNodesEdges(allPersons, settings);
 
-    setNodes((nds) => [...nds, newNode]);
-    
-    // 追加後すぐに編集ダイアログを開く
     setSelectedPerson(newPerson);
     setIsDialogOpen(true);
-  }, [setNodes, settings]);
+  }, [nodes, settings]);
 
-  // ノードのクリックで編集ダイアログを開く
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
-    setSelectedPerson(node.data as PersonData);
+    const { settings: _, label: __, ...personData } = node.data;
+    setSelectedPerson(personData as PersonData);
     setIsDialogOpen(true);
   }, []);
 
-  // 人物情報を保存
   const handleSavePerson = useCallback(
     (updatedPerson: PersonData) => {
-      setNodes((nds) => {
-        // 全ての人物データを取得
-        const allPersons = nds.map(n => {
-          if (n.id === updatedPerson.id) {
-            return updatedPerson;
-          }
-          return n.data as PersonData;
-        });
-
-        // 更新された人物の新しい位置を計算
-        const newPosition = calculatePositionByRelationship(updatedPerson, allPersons);
-
-        return nds.map((node) =>
-          node.id === updatedPerson.id
-            ? {
-                ...node,
-                position: newPosition, // 続柄に基づいて位置を更新
-                data: {
-                  ...updatedPerson,
-                  label: updatedPerson.name,
-                  settings,
-                  groupColors: (updatedPerson.groupIds || [])
-                    .map(gid => groups.find(g => g.id === gid)?.color)
-                    .filter(Boolean) as string[],
-                },
-              }
-            : node
-        );
-      });
+      const allPersons = extractPersons(nodes).map((p) =>
+        p.id === updatedPerson.id ? updatedPerson : p
+      );
+      buildAndSetNodesEdges(allPersons, settings);
     },
-    [setNodes, settings, groups]
+    [nodes, settings]
   );
 
-  // エッジを接続
-const onConnect = useCallback(
-  (params: Connection) => {
-    // Connection は source/target が null の可能性があるのでガード
-    if (!params.source || !params.target) return;
-
-    const newEdge: Edge = {
-      id: `e${params.source}-${params.target}`,
-      type: 'smoothstep',
-      source: params.source,
-      target: params.target,
-      sourceHandle: params.sourceHandle ?? null,
-      targetHandle: params.targetHandle ?? null,
-    };
-
-    setEdges((eds) => addEdge(newEdge, eds));
-  },
-  [setEdges]
-);
-
-  // 検索処理
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
     if (query.trim() === '') {
-      setNodes((nds) =>
-        nds.map((node) => ({
-          ...node,
-          hidden: false,
-        }))
-      );
+      setNodes((nds) => nds.map((node) => ({ ...node, hidden: false })));
       return;
     }
 
@@ -418,21 +467,17 @@ const onConnect = useCallback(
     }
   }, [setNodes, nodes, reactFlowInstance]);
 
-  // JSON形式でエクスポート
   const handleExportJSON = useCallback(() => {
     const data = getCurrentData();
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: 'application/json',
-    });
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = `family-tree-${new Date().getTime()}.json`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [nodes, edges, settings, groups]);
+  }, [nodes, edges, settings]);
 
-  // JSON形式でインポート
   const handleImportJSON = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
@@ -446,7 +491,7 @@ const onConnect = useCallback(
           try {
             const data: FamilyTreeData = JSON.parse(e.target?.result as string);
             loadData(data);
-          } catch (error) {
+          } catch {
             alert('ファイルの読み込みに失敗しました');
           }
         };
@@ -457,13 +502,9 @@ const onConnect = useCallback(
     []
   );
 
-  // 画像としてエクスポート
   const handleExportImage = useCallback(() => {
     if (flowRef.current) {
-      toPng(flowRef.current, {
-        backgroundColor: '#fcf9f2',
-        cacheBust: true,
-      })
+      toPng(flowRef.current, { backgroundColor: '#fcf9f2', cacheBust: true })
         .then((dataUrl) => {
           const link = document.createElement('a');
           link.href = dataUrl;
@@ -476,7 +517,6 @@ const onConnect = useCallback(
     }
   }, []);
 
-  // リセット
   const handleReset = useCallback(() => {
     if (confirm('家系図をリセットしてもよろしいですか？\n\n自動保存データも削除されます。')) {
       localStorage.removeItem('familyTreeAutoSave');
@@ -486,15 +526,8 @@ const onConnect = useCallback(
     }
   }, []);
 
-  // グループ管理ダイアログを開く
-  const handleOpenGroupManagement = useCallback(() => {
-    setIsGroupDialogOpen(true);
-  }, []);
-
-  // グループを保存
-  const handleSaveGroups = useCallback((newGroups: Group[]) => {
-    setGroups(newGroups);
-  }, []);
+  /** 全PersonData一覧（ダイアログに渡す用） */
+  const allPersons = extractPersons(nodes);
 
   return (
     <div className="h-screen w-full font-sans bg-gray-50 flex">
@@ -505,7 +538,6 @@ const onConnect = useCallback(
         onImportJSON={handleImportJSON}
         onExportImage={handleExportImage}
         onReset={handleReset}
-        onOpenGroupManagement={handleOpenGroupManagement}
         onAddPerson={handleAddPerson}
         onSearch={handleSearch}
         onUndo={handleUndo}
@@ -529,70 +561,17 @@ const onConnect = useCallback(
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
             onNodeClick={onNodeClick}
             onInit={setReactFlowInstance}
             nodeTypes={nodeTypes}
+            nodesDraggable={false}
             fitView
           >
             <Controls />
             <Background color="#ccc" gap={20} />
-            
-            {/* グループの背景表示 */}
-            <svg className="absolute inset-0 pointer-events-none" style={{ zIndex: -1 }}>
-              {groups.map((group) => {
-                const groupNodes = nodes.filter(n => 
-                  (n.data.groupIds || []).includes(group.id) && !n.hidden
-                );
-                
-                if (groupNodes.length === 0) return null;
-
-                const padding = 30;
-                const minX = Math.min(...groupNodes.map(n => n.position.x)) - padding;
-                const minY = Math.min(...groupNodes.map(n => n.position.y)) - padding;
-                const maxX = Math.max(...groupNodes.map(n => n.position.x + 200)) + padding;
-                const maxY = Math.max(...groupNodes.map(n => n.position.y + 150)) + padding;
-
-                return (
-                  <g key={group.id}>
-                    <rect
-                      x={minX}
-                      y={minY}
-                      width={maxX - minX}
-                      height={maxY - minY}
-                      fill={group.color}
-                      opacity="0.1"
-                      rx="10"
-                    />
-                    <rect
-                      x={minX}
-                      y={minY}
-                      width={maxX - minX}
-                      height={maxY - minY}
-                      fill="none"
-                      stroke={group.color}
-                      strokeWidth="2"
-                      strokeDasharray="5,5"
-                      opacity="0.5"
-                      rx="10"
-                    />
-                    <text
-                      x={minX + 10}
-                      y={minY + 20}
-                      fill={group.color}
-                      fontSize="14"
-                      fontWeight="bold"
-                    >
-                      {group.name}
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
           </ReactFlow>
         </div>
 
-        {/* 自動保存インジケーター */}
         <div className="absolute bottom-4 right-4 text-xs text-gray-500 bg-white px-3 py-1 rounded-full shadow">
           自動保存中...
         </div>
@@ -603,38 +582,8 @@ const onConnect = useCallback(
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
         onSave={handleSavePerson}
-        groups={groups}
-      />
-
-      <GroupManagementDialog
-        groups={groups}
-        isOpen={isGroupDialogOpen}
-        onClose={() => setIsGroupDialogOpen(false)}
-        onSave={handleSaveGroups}
+        allPersons={allPersons}
       />
     </div>
   );
 };
-const toRelationshipEdgeStyle = (style?: CSSProperties) => {
-  if (!style) return undefined;
-
-  const stroke = typeof style.stroke === "string" ? style.stroke : undefined;
-
-  const sw = style.strokeWidth;
-  const strokeWidth =
-    typeof sw === "number"
-      ? sw
-      : typeof sw === "string"
-        ? Number(sw)
-        : undefined;
-
-  const strokeDasharray =
-    typeof style.strokeDasharray === "string" ? style.strokeDasharray : undefined;
-
-  return {
-    stroke,
-    strokeWidth: Number.isFinite(strokeWidth as number) ? (strokeWidth as number) : undefined,
-    strokeDasharray,
-  };
-};
-

@@ -4,14 +4,14 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
-import { PersonData, Group } from '@/types/familyTree';
+import { PersonData } from '@/types/familyTree';
 
 interface PersonEditDialogProps {
   person: PersonData | null;
   isOpen: boolean;
   onClose: () => void;
   onSave: (person: PersonData) => void;
-  groups: Group[];
+  allPersons: PersonData[];
 }
 
 export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
@@ -19,7 +19,7 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
   isOpen,
   onClose,
   onSave,
-  groups,
+  allPersons,
 }) => {
   const [formData, setFormData] = useState<PersonData>({
     id: '',
@@ -29,20 +29,20 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
     relationship: 'other',
     birthDate: '',
     deathDate: '',
-    subtitle: '',
-    affiliation: '',
     notes: '',
     photo: '',
-    groupIds: [],
     isRepresentative: false,
+    parentIds: [],
+    spouseId: undefined,
   });
 
   useEffect(() => {
     if (person) {
       setFormData({
         ...person,
-        groupIds: person.groupIds || [],
         isRepresentative: person.isRepresentative || false,
+        parentIds: person.parentIds || [],
+        spouseId: person.spouseId,
       });
     }
   }, [person]);
@@ -66,12 +66,7 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
     }
   };
 
-  const toggleGroup = (groupId: string) => {
-    const newGroupIds = formData.groupIds.includes(groupId)
-      ? formData.groupIds.filter(id => id !== groupId)
-      : [...formData.groupIds, groupId];
-    setFormData({ ...formData, groupIds: newGroupIds });
-  };
+  const otherPersons = allPersons.filter(p => p.id !== formData.id);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -99,7 +94,7 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             <select
               id="gender"
               value={formData.gender}
-              onChange={(e) => setFormData({ ...formData, gender: e.target.value as any })}
+              onChange={(e) => setFormData({ ...formData, gender: e.target.value as PersonData['gender'] })}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               <option value="male">男性</option>
@@ -113,7 +108,7 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             <select
               id="relationship"
               value={formData.relationship}
-              onChange={(e) => setFormData({ ...formData, relationship: e.target.value as any })}
+              onChange={(e) => setFormData({ ...formData, relationship: e.target.value as PersonData['relationship'] })}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               required
             >
@@ -136,7 +131,7 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             <select
               id="lifeStatus"
               value={formData.lifeStatus}
-              onChange={(e) => setFormData({ ...formData, lifeStatus: e.target.value as any })}
+              onChange={(e) => setFormData({ ...formData, lifeStatus: e.target.value as PersonData['lifeStatus'] })}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               <option value="alive">生存</option>
@@ -145,12 +140,11 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             </select>
           </div>
 
-          {/* 代表者チェックボックス */}
           <div className="flex items-center space-x-2 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
             <Checkbox
               id="isRepresentative"
               checked={formData.isRepresentative || false}
-              onCheckedChange={(checked) => setFormData({ ...formData, isRepresentative: checked })}
+              onCheckedChange={(checked) => setFormData({ ...formData, isRepresentative: checked as boolean })}
             />
             <div className="flex items-center gap-2">
               <Crown className="w-4 h-4 text-yellow-600" />
@@ -158,16 +152,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
                 代表者として表示
               </Label>
             </div>
-          </div>
-
-          <div>
-            <Label htmlFor="subtitle">サブタイトル</Label>
-            <Input
-              id="subtitle"
-              value={formData.subtitle || ''}
-              onChange={(e) => setFormData({ ...formData, subtitle: e.target.value })}
-              placeholder="例: 初代、二代目"
-            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -193,13 +177,42 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
           </div>
 
           <div>
-            <Label htmlFor="affiliation">所属</Label>
-            <Input
-              id="affiliation"
-              value={formData.affiliation || ''}
-              onChange={(e) => setFormData({ ...formData, affiliation: e.target.value })}
-              placeholder="会社名など"
-            />
+            <Label htmlFor="spouseId">配偶者</Label>
+            <select
+              id="spouseId"
+              value={formData.spouseId || ''}
+              onChange={(e) => setFormData({ ...formData, spouseId: e.target.value || undefined })}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">なし</option>
+              {otherPersons.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <Label>親</Label>
+            <div className="space-y-2 mt-2 max-h-32 overflow-y-auto">
+              {otherPersons.map((p) => (
+                <div key={p.id} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`parent-${p.id}`}
+                    checked={(formData.parentIds || []).includes(p.id)}
+                    onCheckedChange={(checked) => {
+                      const parentIds = formData.parentIds || [];
+                      const newParentIds = checked
+                        ? [...parentIds, p.id]
+                        : parentIds.filter(id => id !== p.id);
+                      setFormData({ ...formData, parentIds: newParentIds });
+                    }}
+                  />
+                  <Label htmlFor={`parent-${p.id}`} className="cursor-pointer">
+                    {p.name}
+                  </Label>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div>
@@ -212,33 +225,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
               placeholder="備考・メモ"
             />
           </div>
-
-          {/* グループ選択 */}
-          {groups.length > 0 && (
-            <div>
-              <Label>グループ</Label>
-              <div className="space-y-2 mt-2 max-h-32 overflow-y-auto">
-                {groups.map((group) => (
-                  <div key={group.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`group-${group.id}`}
-                      checked={formData.groupIds.includes(group.id)}
-                      onCheckedChange={() => toggleGroup(group.id)}
-                    />
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-4 h-4 rounded"
-                        style={{ backgroundColor: group.color }}
-                      />
-                      <Label htmlFor={`group-${group.id}`} className="cursor-pointer">
-                        {group.name}
-                      </Label>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           <div>
             <Label htmlFor="photo">写真</Label>
