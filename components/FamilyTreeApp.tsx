@@ -309,12 +309,88 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
 };
 
 /**
- * RelationshipEdge[] → ReactFlow Edge[] に変換
+ * RelationshipEdge[] + positions → ReactFlow Edge[] + 中間ノード
+ *
+ * 両親が2人いる子の場合:
+ *   配偶者線の中点に透明ノードを置き、そこから子へ1本の垂直線を引く。
+ *   個別の親→子エッジは生成しない。
  */
-const toFlowEdges = (relEdges: RelationshipEdge[]): Edge[] => {
-  return relEdges.map((edge) => {
+const buildFlowElements = (
+  relEdges: RelationshipEdge[],
+  positions: Map<string, { x: number; y: number }>,
+): { edges: Edge[]; junctionNodes: Node[] } => {
+  const edges: Edge[] = [];
+  const junctionNodes: Node[] = [];
+
+  // 子ごとの親リスト
+  const childParents = new Map<string, string[]>();
+  for (const e of relEdges) {
+    if (e.type === 'parent-child') {
+      if (!childParents.has(e.target)) childParents.set(e.target, []);
+      childParents.get(e.target)!.push(e.source);
+    }
+  }
+
+  // 2親の子を把握（個別エッジをスキップするため）
+  const twoParentChildren = new Set<string>();
+  // 配偶者ペアキー → junctionノードID（同じ夫婦から複数の子がいる場合共有）
+  const spouseJunctions = new Map<string, string>();
+
+  for (const [childId, parentIds] of childParents) {
+    if (parentIds.length === 2) {
+      twoParentChildren.add(childId);
+
+      const pairKey = [...parentIds].sort().join('-');
+      if (!spouseJunctions.has(pairKey)) {
+        const pos1 = positions.get(parentIds[0]);
+        const pos2 = positions.get(parentIds[1]);
+        if (pos1 && pos2) {
+          const jId = `junction-${pairKey}`;
+          // 両親ノードの中点（ノード中心を想定してx方向は平均）
+          const jx = (pos1.x + pos2.x) / 2;
+          const jy = pos1.y + 40; // 親ノードの少し下（配偶者線の高さ付近）
+
+          junctionNodes.push({
+            id: jId,
+            type: 'default',
+            position: { x: jx + 55, y: jy }, // +55 ≈ ノード幅の半分
+            data: {},
+            style: {
+              width: 2,
+              height: 2,
+              background: '#6b7280',
+              border: 'none',
+              borderRadius: '50%',
+              padding: 0,
+              minHeight: 0,
+              minWidth: 0,
+            },
+            selectable: false,
+            draggable: false,
+          });
+
+          spouseJunctions.set(pairKey, jId);
+        }
+      }
+
+      // junction → 子 のエッジ
+      const jId = spouseJunctions.get(pairKey);
+      if (jId) {
+        edges.push({
+          id: `e-${jId}-${childId}`,
+          source: jId,
+          target: childId,
+          type: 'smoothstep',
+          style: { stroke: '#6b7280', strokeWidth: 2 },
+        });
+      }
+    }
+  }
+
+  // 通常のエッジ生成
+  for (const edge of relEdges) {
     if (edge.type === 'spouse') {
-      return {
+      edges.push({
         id: edge.id,
         source: edge.source,
         target: edge.target,
@@ -323,18 +399,25 @@ const toFlowEdges = (relEdges: RelationshipEdge[]): Edge[] => {
         targetHandle: 'left-target',
         style: { stroke: '#e11d48', strokeWidth: 4 },
         label: edge.label,
-      };
+      });
+      continue;
     }
-    // parent-child
-    return {
+
+    // parent-child: 2親の子はスキップ（junction経由で接続済み）
+    if (twoParentChildren.has(edge.target)) continue;
+
+    // 1親のみの場合
+    edges.push({
       id: edge.id,
       source: edge.source,
       target: edge.target,
       type: 'smoothstep',
       style: { stroke: '#6b7280', strokeWidth: 2 },
       label: edge.label,
-    };
-  });
+    });
+  }
+
+  return { edges, junctionNodes };
 };
 
 /**
@@ -442,7 +525,7 @@ export const FamilyTreeApp: React.FC = () => {
     personsRef.current = persons;
     const positions = calculateLayout(persons);
     const relEdges = generateEdgesFromPersons(persons);
-    const flowEdges = toFlowEdges(relEdges);
+    const { edges: flowEdges, junctionNodes } = buildFlowElements(relEdges, positions);
 
     const personNodes: Node[] = persons.map((person) => ({
       id: person.id,
@@ -455,7 +538,7 @@ export const FamilyTreeApp: React.FC = () => {
       },
     }));
 
-    setNodes(personNodes);
+    setNodes([...personNodes, ...junctionNodes]);
     setEdges(flowEdges);
   }, [setNodes, setEdges]);
 
