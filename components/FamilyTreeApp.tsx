@@ -361,8 +361,8 @@ const buildFlowElements = (
         if (pos1 && pos2) {
           const jId = `junction-${pairKey}`;
           const jx = (pos1.x + pos2.x) / 2;
-          // ノード下端よりさらに下に配置し、配偶者線と交差しないようにする
-          const jy = Math.max(pos1.y, pos2.y) + 100;
+          // 配偶者線（ノード中央高さ）と同じ位置に置きT字を形成
+          const jy = Math.max(pos1.y, pos2.y) + 45;
 
           junctionNodes.push({
             id: jId,
