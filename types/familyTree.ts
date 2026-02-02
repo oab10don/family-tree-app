@@ -24,12 +24,26 @@ export interface PersonData {
   relationship: Relationship;
   birthDate?: string;
   deathDate?: string;
-  photo?: string;
+  photo?: string; // 互換性のため残置（UIでは非使用）
   notes?: string;
   isRepresentative?: boolean;
   parentIds?: string[];
   spouseId?: string;
+  // 同居/別居
+  livingTogether?: boolean;
+  livingGroup?: number; // 1〜10
+  // 住所・電話
+  address?: string;
+  phone?: string;
 }
+
+/**
+ * 性別記号を付与した表示名を返す（データは汚さない）
+ */
+export const getDisplayName = (person: PersonData): string => {
+  const symbol = person.gender === 'male' ? '◻ ' : person.gender === 'female' ? '◯ ' : '';
+  return `${symbol}${person.name}`;
+};
 
 // ノードのデータ型
 export interface PersonNodeData extends PersonData {
@@ -52,11 +66,11 @@ export interface RelationshipEdge {
 
 // 表示設定の型
 export interface DisplaySettings {
-  showPhoto: boolean;
   showName: boolean;
   showBirthDeath: boolean;
   showNotes: boolean;
   colorByGender: boolean;
+  showPhoto?: boolean; // 互換性のため残置（UIでは非使用）
 }
 
 // 全体のデータ構造
@@ -69,7 +83,6 @@ export interface FamilyTreeData {
 
 // デフォルト設定
 export const defaultSettings: DisplaySettings = {
-  showPhoto: false,
   showName: true,
   showBirthDeath: true,
   showNotes: false,

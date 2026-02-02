@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { PersonNodeData } from '@/types/familyTree';
-import { User, Crown } from 'lucide-react';
+import { PersonNodeData, getDisplayName } from '@/types/familyTree';
+import { Crown, Home } from 'lucide-react';
 
 interface PersonNodeProps extends NodeProps {
   data: PersonNodeData & {
     settings: {
-      showPhoto: boolean;
       showName: boolean;
       showBirthDeath: boolean;
       showNotes: boolean;
@@ -14,6 +13,20 @@ interface PersonNodeProps extends NodeProps {
     };
   };
 }
+
+/** 同居グループ番号ごとの枠線カラー */
+const LIVING_GROUP_COLORS: Record<number, string> = {
+  1: 'ring-green-400',
+  2: 'ring-orange-400',
+  3: 'ring-purple-400',
+  4: 'ring-teal-400',
+  5: 'ring-rose-400',
+  6: 'ring-cyan-400',
+  7: 'ring-amber-400',
+  8: 'ring-indigo-400',
+  9: 'ring-lime-400',
+  10: 'ring-fuchsia-400',
+};
 
 export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
   const [showTooltip, setShowTooltip] = useState(false);
@@ -63,6 +76,10 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
     return '';
   };
 
+  const livingGroupRing = data.livingTogether && data.livingGroup
+    ? `ring-2 ${LIVING_GROUP_COLORS[data.livingGroup] ?? 'ring-green-400'}`
+    : '';
+
   return (
     <>
       <Handle type="target" position={Position.Top} className="opacity-0" />
@@ -78,7 +95,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
             min-w-[100px] sm:min-w-[120px] max-w-[180px] sm:max-w-[200px] p-2.5 sm:p-3 rounded-lg border-2
             ${getBgColor()}
             ${getBorderColor()}
-            ${selected ? 'ring-2 ring-primary' : ''}
+            ${selected ? 'ring-2 ring-primary' : livingGroupRing}
             ${getLifeStatusStyle()}
             transition-all cursor-pointer
           `}
@@ -96,19 +113,17 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
               </div>
             )}
 
-            {settings.showPhoto && (
-              <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                {data.photo ? (
-                  <img src={data.photo} alt={data.name} className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400" />
-                )}
+            {/* 同居バッジ */}
+            {data.livingTogether && data.livingGroup && (
+              <div className="absolute -bottom-2 -right-2 bg-green-600 text-white rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-[10px] font-bold z-10">
+                <Home className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                <span className="text-[8px] ml-px">{data.livingGroup}</span>
               </div>
             )}
 
             {settings.showName && (
               <div className="text-center text-xs sm:text-sm font-bold">
-                {data.name}
+                {getDisplayName(data)}
               </div>
             )}
 
@@ -132,13 +147,18 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
             <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-lg min-w-[200px] max-w-[300px]">
               <div className="font-bold mb-2 flex items-center gap-2">
                 {data.isRepresentative && <Crown className="w-4 h-4 text-yellow-400" />}
-                {data.name}
+                {getDisplayName(data)}
               </div>
               <div className="space-y-1 text-gray-300">
                 <div>性別: {data.gender === 'male' ? '男性' : data.gender === 'female' ? '女性' : 'その他'}</div>
                 <div>状態: {data.lifeStatus === 'alive' ? '生存' : data.lifeStatus === 'deceased' ? '死去' : '不明'}</div>
                 {data.birthDate && <div>生年: {data.birthDate}</div>}
                 {data.deathDate && <div>没年: {data.deathDate}</div>}
+                {data.livingTogether && data.livingGroup && (
+                  <div>同居グループ: {data.livingGroup}</div>
+                )}
+                {data.address && <div>住所: {data.address}</div>}
+                {data.phone && <div>電話: {data.phone}</div>}
                 {data.notes && (
                   <div className="border-t border-gray-700 pt-1 mt-1">
                     メモ: {data.notes.length > 50 ? data.notes.substring(0, 50) + '...' : data.notes}

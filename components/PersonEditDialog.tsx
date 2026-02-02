@@ -4,13 +4,14 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
-import { PersonData } from '@/types/familyTree';
+import { PersonData, getDisplayName } from '@/types/familyTree';
 
 interface PersonEditDialogProps {
   person: PersonData | null;
   isOpen: boolean;
   onClose: () => void;
   onSave: (person: PersonData) => void;
+  onDelete?: (personId: string) => void;
   allPersons: PersonData[];
 }
 
@@ -19,6 +20,7 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
   isOpen,
   onClose,
   onSave,
+  onDelete,
   allPersons,
 }) => {
   const [formData, setFormData] = useState<PersonData>({
@@ -30,10 +32,13 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
     birthDate: '',
     deathDate: '',
     notes: '',
-    photo: '',
     isRepresentative: false,
     parentIds: [],
     spouseId: undefined,
+    livingTogether: false,
+    livingGroup: undefined,
+    address: '',
+    phone: '',
   });
 
   useEffect(() => {
@@ -43,6 +48,10 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
         isRepresentative: person.isRepresentative || false,
         parentIds: person.parentIds || [],
         spouseId: person.spouseId,
+        livingTogether: person.livingTogether || false,
+        livingGroup: person.livingGroup,
+        address: person.address || '',
+        phone: person.phone || '',
       });
     }
   }, [person]);
@@ -55,18 +64,43 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
     onClose();
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData({ ...formData, photo: reader.result as string });
-      };
-      reader.readAsDataURL(file);
+  const handleDelete = () => {
+    if (onDelete && formData.id && confirm(`「${formData.name}」を削除しますか？`)) {
+      onDelete(formData.id);
+      onClose();
     }
   };
 
   const otherPersons = allPersons.filter(p => p.id !== formData.id);
+  const malePersons = otherPersons.filter(p => p.gender === 'male');
+  const femalePersons = otherPersons.filter(p => p.gender === 'female');
+
+  // 親IDから父（男性）・母（女性）を分離
+  const currentParentIds = formData.parentIds || [];
+  const fatherId = currentParentIds.find(id => {
+    const p = allPersons.find(person => person.id === id);
+    return p?.gender === 'male';
+  }) || '';
+  const motherId = currentParentIds.find(id => {
+    const p = allPersons.find(person => person.id === id);
+    return p?.gender === 'female';
+  }) || '';
+
+  const setFatherId = (id: string) => {
+    const newParentIds = [
+      ...(id ? [id] : []),
+      ...(motherId ? [motherId] : []),
+    ];
+    setFormData({ ...formData, parentIds: newParentIds });
+  };
+
+  const setMotherId = (id: string) => {
+    const newParentIds = [
+      ...(fatherId ? [fatherId] : []),
+      ...(id ? [id] : []),
+    ];
+    setFormData({ ...formData, parentIds: newParentIds });
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -186,33 +220,98 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             >
               <option value="">なし</option>
               {otherPersons.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <option key={p.id} value={p.id}>{getDisplayName(p)}</option>
               ))}
             </select>
           </div>
 
+          {/* 親選択: 男性/女性ドロップダウン */}
           <div>
             <Label>親</Label>
-            <div className="space-y-2 mt-2 max-h-32 overflow-y-auto">
-              {otherPersons.map((p) => (
-                <div key={p.id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`parent-${p.id}`}
-                    checked={(formData.parentIds || []).includes(p.id)}
-                    onCheckedChange={(checked) => {
-                      const parentIds = formData.parentIds || [];
-                      const newParentIds = checked
-                        ? [...parentIds, p.id]
-                        : parentIds.filter(id => id !== p.id);
-                      setFormData({ ...formData, parentIds: newParentIds });
-                    }}
-                  />
-                  <Label htmlFor={`parent-${p.id}`} className="cursor-pointer">
-                    {p.name}
-                  </Label>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 gap-3 mt-2">
+              <div>
+                <Label htmlFor="fatherId" className="text-xs text-gray-500">父（男性）</Label>
+                <select
+                  id="fatherId"
+                  value={fatherId}
+                  onChange={(e) => setFatherId(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">未選択</option>
+                  {malePersons.map((p) => (
+                    <option key={p.id} value={p.id}>{getDisplayName(p)}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="motherId" className="text-xs text-gray-500">母（女性）</Label>
+                <select
+                  id="motherId"
+                  value={motherId}
+                  onChange={(e) => setMotherId(e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">未選択</option>
+                  {femalePersons.map((p) => (
+                    <option key={p.id} value={p.id}>{getDisplayName(p)}</option>
+                  ))}
+                </select>
+              </div>
             </div>
+          </div>
+
+          {/* 同居/別居 */}
+          <div className="p-3 bg-green-50 rounded-lg border border-green-200 space-y-2">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="livingTogether"
+                checked={formData.livingTogether || false}
+                onCheckedChange={(checked) => setFormData({
+                  ...formData,
+                  livingTogether: checked as boolean,
+                  livingGroup: checked ? (formData.livingGroup || 1) : undefined,
+                })}
+              />
+              <Label htmlFor="livingTogether" className="cursor-pointer font-medium">
+                同居
+              </Label>
+            </div>
+            {formData.livingTogether && (
+              <div>
+                <Label htmlFor="livingGroup" className="text-xs text-gray-500">グループ番号</Label>
+                <select
+                  id="livingGroup"
+                  value={formData.livingGroup || 1}
+                  onChange={(e) => setFormData({ ...formData, livingGroup: Number(e.target.value) })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* 住所・電話 */}
+          <div>
+            <Label htmlFor="address">住所</Label>
+            <Input
+              id="address"
+              value={formData.address || ''}
+              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              placeholder="東京都..."
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="phone">電話番号</Label>
+            <Input
+              id="phone"
+              value={formData.phone || ''}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              placeholder="090-1234-5678"
+            />
           </div>
 
           <div>
@@ -226,25 +325,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             />
           </div>
 
-          <div>
-            <Label htmlFor="photo">写真</Label>
-            <Input
-              id="photo"
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoUpload}
-            />
-            {formData.photo && (
-              <div className="mt-2">
-                <img
-                  src={formData.photo}
-                  alt="Preview"
-                  className="w-20 h-20 rounded-full object-cover"
-                />
-              </div>
-            )}
-          </div>
-
           <div className="flex gap-2 pt-4">
             <Button type="submit" className="flex-1">
               保存
@@ -253,6 +333,17 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
               キャンセル
             </Button>
           </div>
+
+          {onDelete && formData.id && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleDelete}
+              className="w-full text-red-500 hover:text-red-700 hover:bg-red-50"
+            >
+              この人物を削除
+            </Button>
+          )}
         </form>
       </div>
     </div>

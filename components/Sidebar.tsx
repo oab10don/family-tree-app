@@ -114,19 +114,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="grid grid-cols-2 gap-3 pt-2">
             <div className="flex items-center space-x-2">
               <Checkbox
-                id="show-photo"
-                checked={settings.showPhoto}
-                onCheckedChange={(checked) =>
-                  onSettingsChange({ ...settings, showPhoto: checked as boolean })
-                }
-              />
-              <Label htmlFor="show-photo" className="text-xs">
-                写真
-              </Label>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
                 id="show-name"
                 checked={settings.showName}
                 onCheckedChange={(checked) =>
