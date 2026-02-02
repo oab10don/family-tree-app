@@ -13,7 +13,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { toPng } from 'html-to-image';
-import { ChevronDown, ChevronUp, Pencil } from 'lucide-react';
+import { ChevronDown, ChevronUp, Pencil, ArrowUpDown } from 'lucide-react';
 
 import { PersonNode, JunctionNode } from './PersonNode';
 import { Sidebar } from './Sidebar';
@@ -26,12 +26,41 @@ import {
   sampleData,
   defaultSettings,
   getDisplayName,
+  childSortOrder,
+  relationshipLabels,
 } from '@/types/familyTree';
 import { Button } from './ui/button';
 
 const nodeTypes: NodeTypes = {
   person: PersonNode,
   junction: JunctionNode,
+};
+
+/** 同居グループの背景色 */
+const LIVING_GROUP_BG_COLORS: Record<number, string> = {
+  1: 'rgba(34,197,94,0.10)',
+  2: 'rgba(249,115,22,0.10)',
+  3: 'rgba(168,85,247,0.10)',
+  4: 'rgba(20,184,166,0.10)',
+  5: 'rgba(244,63,94,0.10)',
+  6: 'rgba(6,182,212,0.10)',
+  7: 'rgba(245,158,11,0.10)',
+  8: 'rgba(99,102,241,0.10)',
+  9: 'rgba(132,204,22,0.10)',
+  10: 'rgba(217,70,239,0.10)',
+};
+
+const LIVING_GROUP_BORDER_COLORS: Record<number, string> = {
+  1: 'rgba(34,197,94,0.5)',
+  2: 'rgba(249,115,22,0.5)',
+  3: 'rgba(168,85,247,0.5)',
+  4: 'rgba(20,184,166,0.5)',
+  5: 'rgba(244,63,94,0.5)',
+  6: 'rgba(6,182,212,0.5)',
+  7: 'rgba(245,158,11,0.5)',
+  8: 'rgba(99,102,241,0.5)',
+  9: 'rgba(132,204,22,0.5)',
+  10: 'rgba(217,70,239,0.5)',
 };
 
 /**
@@ -71,7 +100,7 @@ const generateEdgesFromPersons = (persons: PersonData[]): RelationshipEdge[] => 
 };
 
 /**
- * 兄弟を誕生日昇順でソートする
+ * 兄弟を続柄順でソートする（childSortOrder使用）
  */
 const sortSiblings = (persons: PersonData[]): PersonData[] => {
   const personMap = new Map<string, PersonData>();
@@ -91,12 +120,12 @@ const sortSiblings = (persons: PersonData[]): PersonData[] => {
     }
   }
 
-  // 各兄弟グループを誕生日でソート
+  // 各兄弟グループを続柄順でソート
   for (const [, siblings] of parentGroupMap) {
     siblings.sort((a, b) => {
-      const aDate = a.birthDate ? parseInt(a.birthDate, 10) : Infinity;
-      const bDate = b.birthDate ? parseInt(b.birthDate, 10) : Infinity;
-      if (aDate !== bDate) return aDate - bDate;
+      const aOrder = childSortOrder[a.relationship] ?? 99;
+      const bOrder = childSortOrder[b.relationship] ?? 99;
+      if (aOrder !== bOrder) return aOrder - bOrder;
       return a.id.localeCompare(b.id);
     });
   }
@@ -120,19 +149,16 @@ const sortSiblings = (persons: PersonData[]): PersonData[] => {
 
 /**
  * グラフ走査ベースのレイアウト計算
- * - BFSで世代を算出
- * - 子を親ペアの中央下に配置
- * - 兄弟は誕生日昇順
  */
 const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: number }> => {
   const positions = new Map<string, { x: number; y: number }>();
   if (persons.length === 0) return positions;
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-  const SPOUSE_GAP = isMobile ? 100 : 140;
-  const SIBLING_GAP = isMobile ? 130 : 180;
-  const GENERATION_GAP = isMobile ? 160 : 200;
-  const NODE_WIDTH = isMobile ? 100 : 120; // ノード概算幅
+  const SPOUSE_GAP = isMobile ? 140 : 160;
+  const SIBLING_GAP = isMobile ? 160 : 200;
+  const GENERATION_GAP = isMobile ? 180 : 220;
+  const NODE_WIDTH = isMobile ? 110 : 130;
 
   const sorted = sortSiblings(persons);
 
@@ -201,7 +227,6 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     generations.get(gen)!.push(p);
   }
   const minGen = Math.min(...generations.keys());
-  const maxGen = Math.max(...generations.keys());
 
   // 配偶者ペア
   const spousePairs = new Map<string, string>();
@@ -209,8 +234,7 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     if (person.spouseId) spousePairs.set(person.id, person.spouseId);
   }
 
-  // --- Pass 1: 最上世代から順にユニットを構築し仮配置 ---
-  // ユニット = 配偶者ペア or 単独
+  // --- Pass 1: ユニット構築 ---
   type Unit = { ids: string[]; width: number; centerX: number };
   const genUnits = new Map<number, Unit[]>();
 
@@ -236,8 +260,7 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     genUnits.set(gen, units);
   }
 
-  // --- Pass 2: ボトムアップで子の位置を親中央に揃える ---
-  // まず最上世代を仮配置
+  // --- Pass 2: レイアウト ---
   const placeUnits = (units: Unit[]) => {
     let currentX = 0;
     for (let i = 0; i < units.length; i++) {
@@ -245,31 +268,26 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
       units[i].centerX = currentX + units[i].width / 2;
       currentX += units[i].width;
     }
-    // 中央揃え
     const totalWidth = currentX;
     const offset = totalWidth / 2;
     for (const u of units) u.centerX -= offset;
   };
 
-  // 最上世代を仮配置
   const topUnits = genUnits.get(sortedGens[0]);
   if (topUnits) placeUnits(topUnits);
 
-  // 上→下に、親の中央を基準に子を配置
   for (let gi = 1; gi < sortedGens.length; gi++) {
     const gen = sortedGens[gi];
     const units = genUnits.get(gen)!;
     const parentGen = sortedGens[gi - 1];
     const parentUnits = genUnits.get(parentGen);
 
-    // 各ユニットの理想位置（親の中央）を計算
     for (const unit of units) {
       const parentPositions: number[] = [];
       for (const id of unit.ids) {
         const person = personMap.get(id);
         if (person?.parentIds) {
           for (const pid of person.parentIds) {
-            // 親がいるユニットの中心を探す
             if (parentUnits) {
               const pu = parentUnits.find(u => u.ids.includes(pid));
               if (pu) parentPositions.push(pu.centerX);
@@ -283,7 +301,7 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
       }
     }
 
-    // 重なり解消: 左から順にSIBLING_GAP以上の間隔を保証
+    // 重なり解消
     units.sort((a, b) => a.centerX - b.centerX);
     for (let i = 1; i < units.length; i++) {
       const minX = units[i - 1].centerX + units[i - 1].width / 2 + SIBLING_GAP + units[i].width / 2;
@@ -293,7 +311,7 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     }
   }
 
-  // --- Pass 3: ユニットからノード位置を確定 ---
+  // --- Pass 3: ノード位置確定 ---
   for (const [gen, units] of genUnits) {
     const y = (gen - minGen) * GENERATION_GAP;
     for (const unit of units) {
@@ -311,10 +329,6 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
 
 /**
  * RelationshipEdge[] + positions → ReactFlow Edge[] + 中間ノード
- *
- * 両親が2人いる子の場合:
- *   配偶者線の中点に透明ノードを置き、そこから子へ1本の垂直線を引く。
- *   個別の親→子エッジは生成しない。
  */
 const buildFlowElements = (
   relEdges: RelationshipEdge[],
@@ -332,9 +346,8 @@ const buildFlowElements = (
     }
   }
 
-  // 2親の子を把握（個別エッジをスキップするため）
+  // 2親の子を把握
   const twoParentChildren = new Set<string>();
-  // 配偶者ペアキー → junctionノードID（同じ夫婦から複数の子がいる場合共有）
   const spouseJunctions = new Map<string, string>();
 
   for (const [childId, parentIds] of childParents) {
@@ -347,7 +360,6 @@ const buildFlowElements = (
         const pos2 = positions.get(parentIds[1]);
         if (pos1 && pos2) {
           const jId = `junction-${pairKey}`;
-          // 両親の中点x（= 親ペアユニットのcenterX）、同じy座標
           const jx = (pos1.x + pos2.x) / 2;
           const jy = pos1.y;
 
@@ -364,7 +376,6 @@ const buildFlowElements = (
         }
       }
 
-      // junction → 子 のエッジ
       const jId = spouseJunctions.get(pairKey);
       if (jId) {
         edges.push({
@@ -373,6 +384,7 @@ const buildFlowElements = (
           target: childId,
           type: 'smoothstep',
           style: { stroke: '#6b7280', strokeWidth: 2 },
+          zIndex: 0,
         });
       }
     }
@@ -390,14 +402,14 @@ const buildFlowElements = (
         targetHandle: 'left-target',
         style: { stroke: '#e11d48', strokeWidth: 4 },
         label: edge.label,
+        zIndex: 10,
       });
       continue;
     }
 
-    // parent-child: 2親の子はスキップ（junction経由で接続済み）
+    // parent-child: 2親の子はスキップ
     if (twoParentChildren.has(edge.target)) continue;
 
-    // 1親のみの場合
     edges.push({
       id: edge.id,
       source: edge.source,
@@ -405,6 +417,7 @@ const buildFlowElements = (
       type: 'smoothstep',
       style: { stroke: '#6b7280', strokeWidth: 2 },
       label: edge.label,
+      zIndex: 0,
     });
   }
 
@@ -418,7 +431,8 @@ const MemberTable: React.FC<{
   persons: PersonData[];
   allPersons: PersonData[];
   onEdit: (person: PersonData) => void;
-}> = ({ persons, allPersons, onEdit }) => {
+  onReorder: (persons: PersonData[]) => void;
+}> = ({ persons, allPersons, onEdit, onReorder }) => {
   const findName = (id?: string) => {
     if (!id) return '-';
     const p = allPersons.find(person => person.id === id);
@@ -435,32 +449,47 @@ const MemberTable: React.FC<{
     };
   };
 
+  const moveUp = (index: number) => {
+    if (index <= 0) return;
+    const newPersons = [...persons];
+    [newPersons[index - 1], newPersons[index]] = [newPersons[index], newPersons[index - 1]];
+    onReorder(newPersons);
+  };
+
+  const moveDown = (index: number) => {
+    if (index >= persons.length - 1) return;
+    const newPersons = [...persons];
+    [newPersons[index], newPersons[index + 1]] = [newPersons[index + 1], newPersons[index]];
+    onReorder(newPersons);
+  };
+
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-xs border-collapse">
         <thead>
           <tr className="bg-gray-100 border-b">
             <th className="px-2 py-2 text-left font-semibold">名前</th>
+            <th className="px-2 py-2 text-left font-semibold">続柄</th>
             <th className="px-2 py-2 text-left font-semibold">性別</th>
-            <th className="px-2 py-2 text-left font-semibold">生年</th>
             <th className="px-2 py-2 text-left font-semibold">父</th>
             <th className="px-2 py-2 text-left font-semibold">母</th>
             <th className="px-2 py-2 text-left font-semibold">同居</th>
             <th className="px-2 py-2 text-left font-semibold hidden lg:table-cell">住所</th>
             <th className="px-2 py-2 text-left font-semibold hidden lg:table-cell">電話</th>
+            <th className="px-2 py-2 text-center font-semibold">並替</th>
             <th className="px-2 py-2 text-center font-semibold">操作</th>
           </tr>
         </thead>
         <tbody>
-          {persons.map((person) => {
+          {persons.map((person, index) => {
             const parents = getParentNames(person.parentIds);
             return (
               <tr key={person.id} className="border-b hover:bg-gray-50">
                 <td className="px-2 py-1.5 font-medium">{getDisplayName(person)}</td>
+                <td className="px-2 py-1.5">{relationshipLabels[person.relationship] ?? '-'}</td>
                 <td className="px-2 py-1.5">
                   {person.gender === 'male' ? '男' : person.gender === 'female' ? '女' : '他'}
                 </td>
-                <td className="px-2 py-1.5">{person.birthDate || '-'}</td>
                 <td className="px-2 py-1.5">{parents.father}</td>
                 <td className="px-2 py-1.5">{parents.mother}</td>
                 <td className="px-2 py-1.5">
@@ -471,6 +500,26 @@ const MemberTable: React.FC<{
                 </td>
                 <td className="px-2 py-1.5 hidden lg:table-cell">
                   {person.phone || '-'}
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  <div className="flex gap-0.5 justify-center">
+                    <button
+                      onClick={() => moveUp(index)}
+                      disabled={index === 0}
+                      className="text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                      title="上へ"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => moveDown(index)}
+                      disabled={index === persons.length - 1}
+                      className="text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                      title="下へ"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </td>
                 <td className="px-2 py-1.5 text-center">
                   <button
@@ -490,6 +539,67 @@ const MemberTable: React.FC<{
   );
 };
 
+/**
+ * 同居グループの囲み枠を計算する
+ */
+const buildLivingGroupNodes = (
+  persons: PersonData[],
+  positions: Map<string, { x: number; y: number }>,
+): Node[] => {
+  const groups = new Map<number, { minX: number; minY: number; maxX: number; maxY: number }>();
+
+  for (const p of persons) {
+    if (!p.livingTogether || !p.livingGroup) continue;
+    const pos = positions.get(p.id);
+    if (!pos) continue;
+
+    const NODE_W = 140;
+    const NODE_H = 80;
+    const existing = groups.get(p.livingGroup);
+    if (existing) {
+      existing.minX = Math.min(existing.minX, pos.x);
+      existing.minY = Math.min(existing.minY, pos.y);
+      existing.maxX = Math.max(existing.maxX, pos.x + NODE_W);
+      existing.maxY = Math.max(existing.maxY, pos.y + NODE_H);
+    } else {
+      groups.set(p.livingGroup, {
+        minX: pos.x,
+        minY: pos.y,
+        maxX: pos.x + NODE_W,
+        maxY: pos.y + NODE_H,
+      });
+    }
+  }
+
+  const PADDING = 30;
+  const nodes: Node[] = [];
+
+  for (const [groupNum, bounds] of groups) {
+    nodes.push({
+      id: `living-group-${groupNum}`,
+      type: 'group',
+      position: {
+        x: bounds.minX - PADDING,
+        y: bounds.minY - PADDING,
+      },
+      data: { label: '' },
+      style: {
+        width: bounds.maxX - bounds.minX + PADDING * 2,
+        height: bounds.maxY - bounds.minY + PADDING * 2,
+        backgroundColor: LIVING_GROUP_BG_COLORS[groupNum] ?? 'rgba(34,197,94,0.10)',
+        border: `2px dashed ${LIVING_GROUP_BORDER_COLORS[groupNum] ?? 'rgba(34,197,94,0.5)'}`,
+        borderRadius: '12px',
+        zIndex: -1,
+        pointerEvents: 'none' as const,
+      },
+      selectable: false,
+      draggable: false,
+    });
+  }
+
+  return nodes;
+};
+
 export const FamilyTreeApp: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -503,10 +613,9 @@ export const FamilyTreeApp: React.FC = () => {
   const flowRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Undo/Redo: PersonData[]ベースのスナップショット
+  // Undo/Redo
   const [personHistory, setPersonHistory] = useState<PersonData[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const skipHistoryRef = useRef(false);
 
   // PersonData[]をソースとして管理
   const personsRef = useRef<PersonData[]>([]);
@@ -517,6 +626,7 @@ export const FamilyTreeApp: React.FC = () => {
     const positions = calculateLayout(persons);
     const relEdges = generateEdgesFromPersons(persons);
     const { edges: flowEdges, junctionNodes } = buildFlowElements(relEdges, positions);
+    const livingGroupNodes = buildLivingGroupNodes(persons, positions);
 
     const personNodes: Node[] = persons.map((person) => ({
       id: person.id,
@@ -529,7 +639,7 @@ export const FamilyTreeApp: React.FC = () => {
       },
     }));
 
-    setNodes([...personNodes, ...junctionNodes]);
+    setNodes([...livingGroupNodes, ...personNodes, ...junctionNodes]);
     setEdges(flowEdges);
   }, [setNodes, setEdges]);
 
@@ -635,15 +745,6 @@ export const FamilyTreeApp: React.FC = () => {
     }
   }, [historyIndex, personHistory, rebuildFlow, settings]);
 
-  const extractPersons = (nds: Node[]): PersonData[] => {
-    return nds
-      .filter(n => n.type === 'person')
-      .map((node) => {
-        const { settings: _, label: __, ...personData } = node.data;
-        return personData as PersonData;
-      });
-  };
-
   const getCurrentData = (): FamilyTreeData => {
     return {
       version: '1.0.0',
@@ -663,7 +764,7 @@ export const FamilyTreeApp: React.FC = () => {
   const handleAddPerson = useCallback(() => {
     const newPerson: PersonData = {
       id: `p${Date.now()}`,
-      name: '新しい人物',
+      name: '',
       gender: 'male',
       lifeStatus: 'alive',
       relationship: 'other',
@@ -685,11 +786,42 @@ export const FamilyTreeApp: React.FC = () => {
     setIsDialogOpen(true);
   }, []);
 
+  /** 保存時に配偶者の双方向同期を行う */
   const handleSavePerson = useCallback(
     (updatedPerson: PersonData) => {
-      const allPersons = personsRef.current.map((p) =>
+      let allPersons = personsRef.current.map((p) =>
         p.id === updatedPerson.id ? updatedPerson : p
       );
+
+      // 配偶者の双方向同期
+      // 1. この人が配偶者を設定した場合、相手のspouseIdも更新
+      if (updatedPerson.spouseId) {
+        allPersons = allPersons.map(p =>
+          p.id === updatedPerson.spouseId
+            ? { ...p, spouseId: updatedPerson.id }
+            : p
+        );
+      }
+
+      // 2. 以前この人を配偶者にしていた人の参照を解除
+      const oldPerson = personsRef.current.find(p => p.id === updatedPerson.id);
+      if (oldPerson?.spouseId && oldPerson.spouseId !== updatedPerson.spouseId) {
+        allPersons = allPersons.map(p =>
+          p.id === oldPerson.spouseId && p.spouseId === updatedPerson.id
+            ? { ...p, spouseId: undefined }
+            : p
+        );
+      }
+
+      // 3. 配偶者を解除した場合、相手側も解除
+      if (!updatedPerson.spouseId && oldPerson?.spouseId) {
+        allPersons = allPersons.map(p =>
+          p.id === oldPerson.spouseId && p.spouseId === updatedPerson.id
+            ? { ...p, spouseId: undefined }
+            : p
+        );
+      }
+
       updatePersons(allPersons);
     },
     [updatePersons]
@@ -697,7 +829,6 @@ export const FamilyTreeApp: React.FC = () => {
 
   const handleDeletePerson = useCallback(
     (personId: string) => {
-      // 参照を削除
       const allPersons = personsRef.current
         .filter(p => p.id !== personId)
         .map(p => ({
@@ -714,6 +845,10 @@ export const FamilyTreeApp: React.FC = () => {
     setSelectedPerson(person);
     setIsDialogOpen(true);
   }, []);
+
+  const handleReorder = useCallback((newPersons: PersonData[]) => {
+    updatePersons(newPersons);
+  }, [updatePersons]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
@@ -794,19 +929,20 @@ export const FamilyTreeApp: React.FC = () => {
   }, []);
 
   const handleReset = useCallback(() => {
-    if (confirm('家系図をリセットしてもよろしいですか？\n\n自動保存データも削除されます。')) {
+    if (confirm('全てのデータを消去しますか？\n\nこの操作は取り消せません。')) {
       localStorage.removeItem('familyTreeAutoSave');
-      loadData(sampleData);
+      personsRef.current = [];
+      rebuildFlow([], settings);
       setPersonHistory([]);
       setHistoryIndex(-1);
+      pushHistory([]);
     }
-  }, []);
+  }, [rebuildFlow, settings, pushHistory]);
 
   const allPersons = personsRef.current;
 
   return (
     <div className="h-screen w-full font-sans bg-gray-50 flex">
-      {/* 左: サイドバー（フォーム/設定） */}
       <Sidebar
         settings={settings}
         onSettingsChange={setSettings}
@@ -822,7 +958,6 @@ export const FamilyTreeApp: React.FC = () => {
         canRedo={historyIndex < personHistory.length - 1}
       />
 
-      {/* 右: メイン領域（家系図 + 一覧テーブル） */}
       <main className="flex-1 h-full flex flex-col overflow-hidden">
         <input
           ref={fileInputRef}
@@ -832,7 +967,6 @@ export const FamilyTreeApp: React.FC = () => {
           className="hidden"
         />
 
-        {/* 家系図（折りたたみ可） */}
         <div className="border-b border-gray-200">
           <button
             onClick={() => setShowFamilyTree(!showFamilyTree)}
@@ -868,13 +1002,13 @@ export const FamilyTreeApp: React.FC = () => {
           </div>
         )}
 
-        {/* メンバー一覧テーブル */}
         <div className="flex-1 overflow-auto p-4 bg-white">
           <h3 className="text-sm font-semibold mb-2 text-gray-700">メンバー一覧</h3>
           <MemberTable
             persons={allPersons}
             allPersons={allPersons}
             onEdit={handleEditFromTable}
+            onReorder={handleReorder}
           />
         </div>
       </main>

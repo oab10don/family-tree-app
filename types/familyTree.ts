@@ -3,14 +3,43 @@ export type Relationship =
   | 'self' // 本人
   | 'father' // 父
   | 'mother' // 母
-  | 'grandfather_paternal' // 祖父（父方）
-  | 'grandmother_paternal' // 祖母（父方）
-  | 'grandfather_maternal' // 祖父（母方）
-  | 'grandmother_maternal' // 祖母（母方）
   | 'spouse' // 配偶者
-  | 'child' // 子
-  | 'sibling' // 兄弟姉妹
+  | 'eldest_son' // 長男
+  | 'second_son' // 次男
+  | 'third_son' // 三男
+  | 'eldest_daughter' // 長女
+  | 'second_daughter' // 次女
+  | 'third_daughter' // 三女
+  | 'grandchild' // 孫
   | 'other'; // その他
+
+/** 続柄の表示ラベル */
+export const relationshipLabels: Record<Relationship, string> = {
+  self: '本人',
+  father: '父',
+  mother: '母',
+  spouse: '配偶者',
+  eldest_son: '長男',
+  second_son: '次男',
+  third_son: '三男',
+  eldest_daughter: '長女',
+  second_daughter: '次女',
+  third_daughter: '三女',
+  grandchild: '孫',
+  other: 'その他',
+};
+
+/** 子の続柄のソート順（左から右へ） */
+export const childSortOrder: Record<string, number> = {
+  eldest_son: 1,
+  eldest_daughter: 2,
+  second_son: 3,
+  second_daughter: 4,
+  third_son: 5,
+  third_daughter: 6,
+  grandchild: 10,
+  other: 99,
+};
 
 // 生存状態の型
 export type LifeStatus = 'alive' | 'deceased' | 'unknown';
@@ -67,7 +96,6 @@ export interface RelationshipEdge {
 // 表示設定の型
 export interface DisplaySettings {
   showName: boolean;
-  showBirthDeath: boolean;
   showNotes: boolean;
   colorByGender: boolean;
   showPhoto?: boolean; // 互換性のため残置（UIでは非使用）
@@ -84,64 +112,45 @@ export interface FamilyTreeData {
 // デフォルト設定
 export const defaultSettings: DisplaySettings = {
   showName: true,
-  showBirthDeath: true,
   showNotes: false,
   colorByGender: true,
 };
 
-// サンプルデータ
+// 初期データ（本人・配偶者・子）
 export const sampleData: FamilyTreeData = {
   version: '1.0.0',
   settings: defaultSettings,
   nodes: [
     {
       id: '1',
-      name: '祖父',
-      gender: 'male',
-      lifeStatus: 'deceased',
-      relationship: 'grandfather_paternal',
-      birthDate: '1930',
-      deathDate: '2010',
-      isRepresentative: true,
-      spouseId: '2',
-    },
-    {
-      id: '2',
-      name: '祖母',
-      gender: 'female',
-      lifeStatus: 'deceased',
-      relationship: 'grandmother_paternal',
-      birthDate: '1935',
-      deathDate: '2015',
-      spouseId: '1',
-    },
-    {
-      id: '3',
-      name: '父',
-      gender: 'male',
-      lifeStatus: 'alive',
-      relationship: 'father',
-      birthDate: '1960',
-      parentIds: ['1', '2'],
-      spouseId: '4',
-    },
-    {
-      id: '4',
-      name: '母',
-      gender: 'female',
-      lifeStatus: 'alive',
-      relationship: 'mother',
-      birthDate: '1962',
-      spouseId: '3',
-    },
-    {
-      id: '5',
-      name: '本人',
+      name: '山田太郎',
       gender: 'male',
       lifeStatus: 'alive',
       relationship: 'self',
-      birthDate: '1990',
-      parentIds: ['3', '4'],
+      isRepresentative: true,
+      spouseId: '2',
+      livingTogether: true,
+      livingGroup: 1,
+    },
+    {
+      id: '2',
+      name: '山田花子',
+      gender: 'female',
+      lifeStatus: 'alive',
+      relationship: 'spouse',
+      spouseId: '1',
+      livingTogether: true,
+      livingGroup: 1,
+    },
+    {
+      id: '3',
+      name: '山田一郎',
+      gender: 'male',
+      lifeStatus: 'alive',
+      relationship: 'eldest_son',
+      parentIds: ['1', '2'],
+      livingTogether: true,
+      livingGroup: 1,
     },
   ],
   edges: [
@@ -158,27 +167,9 @@ export const sampleData: FamilyTreeData = {
       type: 'parent-child',
     },
     {
-      id: 'e3-5',
-      source: '3',
-      target: '5',
-      type: 'parent-child',
-    },
-    {
-      id: 'e4-5',
-      source: '4',
-      target: '5',
-      type: 'parent-child',
-    },
-    {
       id: 'spouse-1-2',
       source: '1',
       target: '2',
-      type: 'spouse',
-    },
-    {
-      id: 'spouse-3-4',
-      source: '3',
-      target: '4',
       type: 'spouse',
     },
   ],

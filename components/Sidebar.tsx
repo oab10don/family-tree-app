@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Switch } from './ui/switch';
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
-import { Download, Upload, RotateCcw, FileJson, Search, Undo2, Redo2, UserPlus, Menu, X } from 'lucide-react';
+import { Download, Upload, RotateCcw, FileJson, Search, Undo2, Redo2, UserPlus, Menu, X, Trash2 } from 'lucide-react';
 import { DisplaySettings } from '@/types/familyTree';
 
 interface SidebarProps {
@@ -127,19 +127,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <div className="flex items-center space-x-2">
               <Checkbox
-                id="show-birth-death"
-                checked={settings.showBirthDeath}
-                onCheckedChange={(checked) =>
-                  onSettingsChange({ ...settings, showBirthDeath: checked as boolean })
-                }
-              />
-              <Label htmlFor="show-birth-death" className="text-xs">
-                生没年
-              </Label>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <Checkbox
                 id="show-notes"
                 checked={settings.showNotes}
                 onCheckedChange={(checked) =>
@@ -189,10 +176,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <Button
           onClick={onReset}
           variant="ghost"
-          className="w-full justify-start"
+          className="w-full justify-start text-red-500 hover:text-red-700 hover:bg-red-50"
         >
-          <RotateCcw className="w-4 h-4 mr-2" />
-          全体をリセット
+          <Trash2 className="w-4 h-4 mr-2" />
+          全て消去する
         </Button>
       </div>
     </>

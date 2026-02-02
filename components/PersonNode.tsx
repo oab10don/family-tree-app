@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { PersonNodeData, getDisplayName } from '@/types/familyTree';
+import { PersonNodeData, getDisplayName, relationshipLabels } from '@/types/familyTree';
 import { Crown, Home } from 'lucide-react';
 
 interface PersonNodeProps extends NodeProps {
   data: PersonNodeData & {
     settings: {
       showName: boolean;
-      showBirthDeath: boolean;
       showNotes: boolean;
       colorByGender: boolean;
     };
@@ -80,6 +79,8 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
     ? `ring-2 ${LIVING_GROUP_COLORS[data.livingGroup] ?? 'ring-green-400'}`
     : '';
 
+  const relLabel = relationshipLabels[data.relationship] ?? '';
+
   return (
     <>
       <Handle type="target" position={Position.Top} className="opacity-0" />
@@ -92,7 +93,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
       >
         <div
           className={`
-            min-w-[100px] sm:min-w-[120px] max-w-[180px] sm:max-w-[200px] p-2.5 sm:p-3 rounded-lg border-2
+            min-w-[110px] sm:min-w-[130px] max-w-[180px] sm:max-w-[200px] p-3 sm:p-3.5 rounded-lg border-2
             ${getBgColor()}
             ${getBorderColor()}
             ${selected ? 'ring-2 ring-primary' : livingGroupRing}
@@ -100,7 +101,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
             transition-all cursor-pointer
           `}
         >
-          <div className="flex flex-col items-center gap-1 sm:gap-2">
+          <div className="flex flex-col items-center gap-1.5 sm:gap-2">
             {data.lifeStatus === 'deceased' && (
               <div className="absolute -top-2 -right-2 bg-gray-700 text-white rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-bold z-10">
                 †
@@ -127,10 +128,9 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
               </div>
             )}
 
-            {settings.showBirthDeath && (data.birthDate || data.deathDate) && (
+            {relLabel && (
               <div className="text-[10px] sm:text-xs text-gray-500 text-center">
-                {data.birthDate && `${data.birthDate}`}
-                {data.deathDate && ` - ${data.deathDate}`}
+                {relLabel}
               </div>
             )}
 
@@ -151,9 +151,8 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
               </div>
               <div className="space-y-1 text-gray-300">
                 <div>性別: {data.gender === 'male' ? '男性' : data.gender === 'female' ? '女性' : 'その他'}</div>
+                <div>続柄: {relLabel}</div>
                 <div>状態: {data.lifeStatus === 'alive' ? '生存' : data.lifeStatus === 'deceased' ? '死去' : '不明'}</div>
-                {data.birthDate && <div>生年: {data.birthDate}</div>}
-                {data.deathDate && <div>没年: {data.deathDate}</div>}
                 {data.livingTogether && data.livingGroup && (
                   <div>同居グループ: {data.livingGroup}</div>
                 )}
@@ -183,7 +182,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
 export const JunctionNode: React.FC<NodeProps> = () => {
   return (
     <div
-      className="min-w-[100px] sm:min-w-[120px]"
+      className="min-w-[110px] sm:min-w-[130px]"
       style={{ height: 2, opacity: 0, pointerEvents: 'none' }}
     >
       <Handle type="source" position={Position.Bottom} className="opacity-0" />

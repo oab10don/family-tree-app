@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
-import { PersonData, getDisplayName } from '@/types/familyTree';
+import { PersonData, Relationship, relationshipLabels, getDisplayName } from '@/types/familyTree';
 
 interface PersonEditDialogProps {
   person: PersonData | null;
@@ -29,9 +29,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
     gender: 'male',
     lifeStatus: 'alive',
     relationship: 'other',
-    birthDate: '',
-    deathDate: '',
-    notes: '',
     isRepresentative: false,
     parentIds: [],
     spouseId: undefined,
@@ -72,8 +69,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
   };
 
   const otherPersons = allPersons.filter(p => p.id !== formData.id);
-  const malePersons = otherPersons.filter(p => p.gender === 'male');
-  const femalePersons = otherPersons.filter(p => p.gender === 'female');
 
   // 親IDから父（男性）・母（女性）を分離
   const currentParentIds = formData.parentIds || [];
@@ -85,6 +80,9 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
     const p = allPersons.find(person => person.id === id);
     return p?.gender === 'female';
   }) || '';
+
+  const malePersons = otherPersons.filter(p => p.gender === 'male');
+  const femalePersons = otherPersons.filter(p => p.gender === 'female');
 
   const setFatherId = (id: string) => {
     const newParentIds = [
@@ -101,6 +99,14 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
     ];
     setFormData({ ...formData, parentIds: newParentIds });
   };
+
+  // 続柄の選択肢
+  const relationshipOptions: Relationship[] = [
+    'self', 'father', 'mother', 'spouse',
+    'eldest_son', 'second_son', 'third_son',
+    'eldest_daughter', 'second_daughter', 'third_daughter',
+    'grandchild', 'other',
+  ];
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -142,21 +148,13 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             <select
               id="relationship"
               value={formData.relationship}
-              onChange={(e) => setFormData({ ...formData, relationship: e.target.value as PersonData['relationship'] })}
+              onChange={(e) => setFormData({ ...formData, relationship: e.target.value as Relationship })}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               required
             >
-              <option value="self">本人</option>
-              <option value="father">父</option>
-              <option value="mother">母</option>
-              <option value="grandfather_paternal">祖父（父方）</option>
-              <option value="grandmother_paternal">祖母（父方）</option>
-              <option value="grandfather_maternal">祖父（母方）</option>
-              <option value="grandmother_maternal">祖母（母方）</option>
-              <option value="spouse">配偶者</option>
-              <option value="child">子</option>
-              <option value="sibling">兄弟姉妹</option>
-              <option value="other">その他</option>
+              {relationshipOptions.map((rel) => (
+                <option key={rel} value={rel}>{relationshipLabels[rel]}</option>
+              ))}
             </select>
           </div>
 
@@ -185,28 +183,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
               <Label htmlFor="isRepresentative" className="cursor-pointer font-medium">
                 代表者として表示
               </Label>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="birthDate">生年</Label>
-              <Input
-                id="birthDate"
-                value={formData.birthDate || ''}
-                onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
-                placeholder="1990"
-              />
-            </div>
-            <div>
-              <Label htmlFor="deathDate">没年</Label>
-              <Input
-                id="deathDate"
-                value={formData.deathDate || ''}
-                onChange={(e) => setFormData({ ...formData, deathDate: e.target.value })}
-                placeholder="2020"
-                disabled={formData.lifeStatus !== 'deceased'}
-              />
             </div>
           </div>
 
