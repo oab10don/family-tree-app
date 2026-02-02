@@ -361,7 +361,8 @@ const buildFlowElements = (
         if (pos1 && pos2) {
           const jId = `junction-${pairKey}`;
           const jx = (pos1.x + pos2.x) / 2;
-          const jy = pos1.y;
+          // ノード下端よりさらに下に配置し、配偶者線と交差しないようにする
+          const jy = Math.max(pos1.y, pos2.y) + 100;
 
           junctionNodes.push({
             id: jId,
@@ -400,9 +401,9 @@ const buildFlowElements = (
         type: 'straight',
         sourceHandle: 'right-source',
         targetHandle: 'left-target',
-        style: { stroke: '#e11d48', strokeWidth: 4 },
+        style: { stroke: '#9ca3af', strokeWidth: 2 },
         label: edge.label,
-        zIndex: 10,
+        zIndex: 0,
       });
       continue;
     }
