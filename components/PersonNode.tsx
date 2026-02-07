@@ -10,6 +10,8 @@ interface PersonNodeProps extends NodeProps {
       showNotes: boolean;
       colorByGender: boolean;
     };
+    kinshipDegree?: number;
+    kinshipViaSpouse?: boolean;
   };
 }
 
@@ -122,6 +124,13 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
               </div>
             )}
 
+            {/* 親等バッジ（左下） */}
+            {data.kinshipDegree !== undefined && !data.isRepresentative && (
+              <div className="absolute -bottom-2 -left-2 bg-indigo-600 text-white rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-[10px] sm:text-xs font-bold z-10">
+                {data.kinshipDegree === 0 && data.kinshipViaSpouse ? '配' : data.kinshipDegree}
+              </div>
+            )}
+
             {settings.showName && (
               <div className="text-center text-xs sm:text-sm font-bold">
                 {getDisplayName(data)}
@@ -153,6 +162,9 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
                 <div>性別: {data.gender === 'male' ? '男性' : data.gender === 'female' ? '女性' : 'その他'}</div>
                 <div>続柄: {relLabel}</div>
                 <div>状態: {data.lifeStatus === 'alive' ? '生存' : data.lifeStatus === 'deceased' ? '死去' : '不明'}</div>
+                {data.kinshipDegree !== undefined && !data.isRepresentative && (
+                  <div>親等: {data.kinshipDegree === 0 && data.kinshipViaSpouse ? '配偶者' : `${data.kinshipDegree}親等`}</div>
+                )}
                 {data.livingTogether && data.livingGroup && (
                   <div>同居グループ: {data.livingGroup}</div>
                 )}

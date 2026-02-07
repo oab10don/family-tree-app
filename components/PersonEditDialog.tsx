@@ -172,18 +172,40 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             </select>
           </div>
 
-          <div className="flex items-center space-x-2 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-            <Checkbox
-              id="isRepresentative"
-              checked={formData.isRepresentative || false}
-              onCheckedChange={(checked) => setFormData({ ...formData, isRepresentative: checked as boolean })}
-            />
-            <div className="flex items-center gap-2">
-              <Crown className="w-4 h-4 text-yellow-600" />
-              <Label htmlFor="isRepresentative" className="cursor-pointer font-medium">
-                代表者として表示
-              </Label>
+          <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 space-y-1">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="isRepresentative"
+                checked={formData.isRepresentative || false}
+                onCheckedChange={(checked) => setFormData({ ...formData, isRepresentative: checked as boolean })}
+              />
+              <div className="flex items-center gap-2">
+                <Crown className="w-4 h-4 text-yellow-600" />
+                <Label htmlFor="isRepresentative" className="cursor-pointer font-medium">
+                  代表者として設定
+                </Label>
+              </div>
             </div>
+            {!formData.isRepresentative && (() => {
+              const currentRep = allPersons.find(p => p.isRepresentative && p.id !== formData.id);
+              return currentRep ? (
+                <p className="text-xs text-gray-500 ml-6">
+                  現在の代表者: {currentRep.name}
+                </p>
+              ) : (
+                <p className="text-xs text-amber-600 ml-6">
+                  代表者が未設定です。親等計算には代表者の設定が必要です。
+                </p>
+              );
+            })()}
+            {formData.isRepresentative && (() => {
+              const currentRep = allPersons.find(p => p.isRepresentative && p.id !== formData.id);
+              return currentRep ? (
+                <p className="text-xs text-amber-600 ml-6">
+                  {currentRep.name}から代表者が切り替わります
+                </p>
+              ) : null;
+            })()}
           </div>
 
           <div>

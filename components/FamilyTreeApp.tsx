@@ -601,6 +601,79 @@ const buildLivingGroupNodes = (
   return nodes;
 };
 
+/**
+ * 代表者からの親等を BFS で計算する。
+ * 親子関係 = 1親等、配偶者関係 = 0（経路探索用、表示は「配」）。
+ * 返り値: Map<personId, { degree: number; isSpouseEdge: boolean }>
+ *   - 代表者本人: degree=0, isSpouseEdge=false
+ *   - 配偶者経由で degree=0: isSpouseEdge=true → 表示「配」
+ *   - それ以外: degree=N → 表示「N」
+ */
+const calculateKinshipDegrees = (
+  persons: PersonData[],
+): Map<string, { degree: number; viaSpouse: boolean }> => {
+  const result = new Map<string, { degree: number; viaSpouse: boolean }>();
+  if (persons.length === 0) return result;
+
+  const representative = persons.find(p => p.isRepresentative);
+  if (!representative) return result;
+
+  const personMap = new Map<string, PersonData>();
+  for (const p of persons) personMap.set(p.id, p);
+
+  // 隣接リスト: { targetId, weight, isSpouseEdge }
+  const adjacency = new Map<string, { targetId: string; weight: number; isSpouseEdge: boolean }[]>();
+
+  const addEdge = (from: string, to: string, weight: number, isSpouseEdge: boolean) => {
+    if (!adjacency.has(from)) adjacency.set(from, []);
+    adjacency.get(from)!.push({ targetId: to, weight, isSpouseEdge });
+  };
+
+  for (const p of persons) {
+    // 親子関係（双方向、各1親等）
+    if (p.parentIds) {
+      for (const pid of p.parentIds) {
+        if (personMap.has(pid)) {
+          addEdge(p.id, pid, 1, false);
+          addEdge(pid, p.id, 1, false);
+        }
+      }
+    }
+    // 配偶者関係（双方向、0親等 = 経路探索コスト0）
+    if (p.spouseId && personMap.has(p.spouseId)) {
+      addEdge(p.id, p.spouseId, 0, true);
+      addEdge(p.spouseId, p.id, 0, true);
+    }
+  }
+
+  // BFS (Dijkstra-like with weights 0 and 1)
+  const visited = new Map<string, { degree: number; viaSpouse: boolean }>();
+  // Use deque: weight-0 edges go to front, weight-1 edges go to back (0-1 BFS)
+  const deque: { id: string; degree: number; viaSpouse: boolean }[] = [];
+  deque.push({ id: representative.id, degree: 0, viaSpouse: false });
+
+  while (deque.length > 0) {
+    const current = deque.shift()!;
+    if (visited.has(current.id)) continue;
+    visited.set(current.id, { degree: current.degree, viaSpouse: current.viaSpouse });
+
+    const neighbors = adjacency.get(current.id) ?? [];
+    for (const neighbor of neighbors) {
+      if (visited.has(neighbor.targetId)) continue;
+      const newDegree = current.degree + neighbor.weight;
+      const viaSpouse = current.viaSpouse || neighbor.isSpouseEdge;
+      if (neighbor.weight === 0) {
+        // 0-cost edge: add to front of deque
+        deque.unshift({ id: neighbor.targetId, degree: newDegree, viaSpouse });
+      } else {
+        deque.push({ id: neighbor.targetId, degree: newDegree, viaSpouse });
+      }
+    }
+  }
+
+  return visited;
+};
+
 export const FamilyTreeApp: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -628,17 +701,23 @@ export const FamilyTreeApp: React.FC = () => {
     const relEdges = generateEdgesFromPersons(persons);
     const { edges: flowEdges, junctionNodes } = buildFlowElements(relEdges, positions);
     const livingGroupNodes = buildLivingGroupNodes(persons, positions);
+    const kinshipDegrees = calculateKinshipDegrees(persons);
 
-    const personNodes: Node[] = persons.map((person) => ({
-      id: person.id,
-      type: 'person',
-      position: positions.get(person.id) || { x: 0, y: 0 },
-      data: {
-        ...person,
-        label: person.name,
-        settings: displaySettings,
-      },
-    }));
+    const personNodes: Node[] = persons.map((person) => {
+      const kinship = kinshipDegrees.get(person.id);
+      return {
+        id: person.id,
+        type: 'person',
+        position: positions.get(person.id) || { x: 0, y: 0 },
+        data: {
+          ...person,
+          label: person.name,
+          settings: displaySettings,
+          kinshipDegree: kinship?.degree,
+          kinshipViaSpouse: kinship?.viaSpouse,
+        },
+      };
+    });
 
     setNodes([...livingGroupNodes, ...personNodes, ...junctionNodes]);
     setEdges(flowEdges);
@@ -787,12 +866,19 @@ export const FamilyTreeApp: React.FC = () => {
     setIsDialogOpen(true);
   }, []);
 
-  /** 保存時に配偶者の双方向同期を行う */
+  /** 保存時に配偶者の双方向同期 + 代表者の排他制御を行う */
   const handleSavePerson = useCallback(
     (updatedPerson: PersonData) => {
       let allPersons = personsRef.current.map((p) =>
         p.id === updatedPerson.id ? updatedPerson : p
       );
+
+      // 代表者の排他制御: この人が代表者になった場合、他の全員の代表者フラグを解除
+      if (updatedPerson.isRepresentative) {
+        allPersons = allPersons.map(p =>
+          p.id !== updatedPerson.id ? { ...p, isRepresentative: false } : p
+        );
+      }
 
       // 配偶者の双方向同期
       // 1. この人が配偶者を設定した場合、相手のspouseIdも更新
