@@ -6,10 +6,13 @@ import ReactFlow, {
   Edge,
   Controls,
   Background,
+  MiniMap,
   useNodesState,
   useEdgesState,
   NodeTypes,
   ReactFlowInstance,
+  useReactFlow,
+  ReactFlowProvider,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { toPng } from 'html-to-image';
@@ -30,10 +33,13 @@ import {
   Trash2,
   Menu,
   X,
+  Maximize,
+  FileText,
 } from 'lucide-react';
 
 import { PersonNode, JunctionNode, AddRelationType } from './PersonNode';
 import { PersonEditDialog } from './PersonEditDialog';
+import { ConfirmDialog } from './ConfirmDialog';
 import {
   PersonData,
   RelationshipEdge,
@@ -46,6 +52,7 @@ import {
   relationshipLabels,
 } from '@/types/familyTree';
 import { formatDateShort, toWarekiShort } from '@/lib/wareki';
+import { exportToPdf } from '@/lib/pdfExport';
 import { Input } from './ui/input';
 import { Switch } from './ui/switch';
 import { Checkbox } from './ui/checkbox';
@@ -326,9 +333,9 @@ const Popover: React.FC<{ isOpen: boolean; onClose: () => void; children: React.
   );
 };
 
-// --- メインコンポーネント ---
+// --- メインコンポーネント（ReactFlowProvider内部） ---
 
-export const FamilyTreeApp: React.FC = () => {
+const FamilyTreeAppInner: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [settings, setSettings] = useState<DisplaySettings>(defaultSettings);
@@ -340,12 +347,47 @@ export const FamilyTreeApp: React.FC = () => {
   const [showSettingsPopover, setShowSettingsPopover] = useState(false);
   const [showSavePopover, setShowSavePopover] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
+
+  // 削除確認ダイアログ state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    variant?: 'danger' | 'default';
+    confirmText?: string;
+    onConfirm: () => void;
+  }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
   const flowRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [personHistory, setPersonHistory] = useState<PersonData[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const personsRef = useRef<PersonData[]>([]);
+
+  const { fitView, setCenter, getZoom } = useReactFlow();
+
+  // --- 検索フォーカス ---
+  const searchResults = searchQuery.trim()
+    ? personsRef.current.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : [];
+
+  const focusNode = useCallback((nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    setCenter(
+      node.position.x + (NODE_WIDTH / 2),
+      node.position.y + (NODE_HEIGHT / 2),
+      { zoom: Math.max(getZoom(), 1), duration: 500 }
+    );
+    setHighlightedNodeId(nodeId);
+    setTimeout(() => setHighlightedNodeId(null), 2000);
+    setSearchQuery('');
+    setSearchDropdownOpen(false);
+  }, [nodes, setCenter, getZoom]);
 
   const handleAddRelation = useCallback((personId: string, relationType: AddRelationType) => {
     const currentPerson = personsRef.current.find(p => p.id === personId);
@@ -377,7 +419,7 @@ export const FamilyTreeApp: React.FC = () => {
     }
   }, []);
 
-  const rebuildFlow = useCallback((persons: PersonData[], ds: DisplaySettings) => {
+  const rebuildFlow = useCallback((persons: PersonData[], ds: DisplaySettings, currentHighlight?: string | null) => {
     personsRef.current = persons;
     const positions = calculateLayout(persons);
     const relEdges = generateEdgesFromPersons(persons);
@@ -386,7 +428,14 @@ export const FamilyTreeApp: React.FC = () => {
     const kinshipDegrees = calculateKinshipDegrees(persons);
     const personNodes: Node[] = persons.map((person) => {
       const kinship = kinshipDegrees.get(person.id);
-      return { id: person.id, type: 'person', position: positions.get(person.id) || { x: 0, y: 0 }, data: { ...person, label: person.name, settings: ds, kinshipDegree: kinship?.degree, kinshipViaSpouse: kinship?.viaSpouse, onAddRelation: handleAddRelation } };
+      const isHighlighted = currentHighlight === person.id;
+      return {
+        id: person.id,
+        type: 'person',
+        position: positions.get(person.id) || { x: 0, y: 0 },
+        data: { ...person, label: person.name, settings: ds, kinshipDegree: kinship?.degree, kinshipViaSpouse: kinship?.viaSpouse, onAddRelation: handleAddRelation },
+        selected: isHighlighted,
+      };
     });
     setNodes([...livingGroupNodes, ...personNodes, ...junctionNodes]);
     setEdges(flowEdges);
@@ -412,7 +461,6 @@ export const FamilyTreeApp: React.FC = () => {
       try {
         const data: FamilyTreeData = JSON.parse(autoSaved);
         if (confirm('自動保存されたデータが見つかりました。復元しますか？')) {
-          // 旧設定との互換性: 新フィールドがない場合デフォルト値を補完
           const mergedSettings = { ...defaultSettings, ...data.settings };
           setSettings(mergedSettings);
           personsRef.current = data.nodes;
@@ -435,16 +483,7 @@ export const FamilyTreeApp: React.FC = () => {
     return () => clearInterval(id);
   }, [settings]);
 
-  useEffect(() => { if (personsRef.current.length > 0) rebuildFlow(personsRef.current, settings); }, [settings, rebuildFlow]);
-
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
-      else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); handleRedo(); }
-    };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  });
+  useEffect(() => { if (personsRef.current.length > 0) rebuildFlow(personsRef.current, settings, highlightedNodeId); }, [settings, rebuildFlow, highlightedNodeId]);
 
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) { const ni = historyIndex - 1; const prev = personHistory[ni]; if (prev) { setHistoryIndex(ni); personsRef.current = prev; rebuildFlow(prev, settings); } }
@@ -454,8 +493,48 @@ export const FamilyTreeApp: React.FC = () => {
     if (historyIndex < personHistory.length - 1) { const ni = historyIndex + 1; const next = personHistory[ni]; if (next) { setHistoryIndex(ni); personsRef.current = next; rebuildFlow(next, settings); } }
   }, [historyIndex, personHistory, rebuildFlow, settings]);
 
+  // --- キーボードショートカット ---
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      // ダイアログが開いている時 or input にフォーカス中は Escape 以外無視
+      const isInputFocused = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
+
+      if (e.key === 'Escape') {
+        if (isDialogOpen) { setIsDialogOpen(false); return; }
+        if (confirmDialog.isOpen) { setConfirmDialog(prev => ({ ...prev, isOpen: false })); return; }
+        if (searchDropdownOpen) { setSearchDropdownOpen(false); setSearchQuery(''); return; }
+        // 選択解除
+        setNodes(nds => nds.map(n => ({ ...n, selected: false })));
+        return;
+      }
+
+      if (isInputFocused) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault(); handleUndo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault(); handleRedo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault(); handleExportJSONRef.current();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault(); searchInputRef.current?.focus();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        deleteSelectedWithConfirm();
+      }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  });
+
   const handleAddPerson = useCallback(() => {
     const np: PersonData = { id: `p${Date.now()}`, name: '', gender: 'male', lifeStatus: 'alive', relationship: 'other', isRepresentative: false, parentIds: [] };
+    updatePersons([...personsRef.current, np]);
+    setSelectedPerson(np); setIsDialogOpen(true);
+  }, [updatePersons]);
+
+  // 空状態 → 最初の人物追加（続柄デフォルト=本人）
+  const handleAddFirstPerson = useCallback(() => {
+    const np: PersonData = { id: `p${Date.now()}`, name: '', gender: 'male', lifeStatus: 'alive', relationship: 'self', isRepresentative: true, parentIds: [] };
     updatePersons([...personsRef.current, np]);
     setSelectedPerson(np); setIsDialogOpen(true);
   }, [updatePersons]);
@@ -477,16 +556,49 @@ export const FamilyTreeApp: React.FC = () => {
   }, [updatePersons]);
 
   const handleDeletePerson = useCallback((id: string) => {
-    updatePersons(personsRef.current.filter(p => p.id !== id).map(p => ({ ...p, parentIds: p.parentIds?.filter(pid => pid !== id), spouseId: p.spouseId === id ? undefined : p.spouseId })));
+    const person = personsRef.current.find(p => p.id === id);
+    if (!person) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: '人物を削除',
+      message: `「${person.name || '(名前未設定)'}」を削除しますか？\n関連する親子・配偶者の関係線も削除されます。`,
+      confirmLabel: '削除する',
+      variant: 'danger',
+      onConfirm: () => {
+        updatePersons(personsRef.current.filter(p => p.id !== id).map(p => ({ ...p, parentIds: p.parentIds?.filter(pid => pid !== id), spouseId: p.spouseId === id ? undefined : p.spouseId })));
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        setIsDialogOpen(false);
+      },
+    });
   }, [updatePersons]);
+
+  // 選択中ノード削除（ショートカット用）
+  const deleteSelectedWithConfirm = useCallback(() => {
+    const selectedNodes = nodes.filter(n => n.selected && n.type === 'person');
+    if (selectedNodes.length === 0) return;
+    const names = selectedNodes.map(n => n.data.name || '(名前未設定)').join(', ');
+    setConfirmDialog({
+      isOpen: true,
+      title: '選択した人物を削除',
+      message: `「${names}」を削除しますか？\n関連する親子・配偶者の関係線も削除されます。`,
+      confirmLabel: '削除する',
+      variant: 'danger',
+      onConfirm: () => {
+        const idsToDelete = new Set(selectedNodes.map(n => n.id));
+        updatePersons(personsRef.current.filter(p => !idsToDelete.has(p.id)).map(p => ({
+          ...p,
+          parentIds: p.parentIds?.filter(pid => !idsToDelete.has(pid)),
+          spouseId: p.spouseId && idsToDelete.has(p.spouseId) ? undefined : p.spouseId,
+        })));
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      },
+    });
+  }, [nodes, updatePersons]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
-    if (query.trim() === '') { setNodes(nds => nds.map(n => ({ ...n, hidden: false }))); return; }
-    setNodes(nds => nds.map(n => ({ ...n, hidden: n.type === 'person' ? !n.data.name.toLowerCase().includes(query.toLowerCase()) : true })));
-    const mn = nodes.find(n => n.type === 'person' && n.data.name.toLowerCase().includes(query.toLowerCase()));
-    if (mn && reactFlowInstance) reactFlowInstance.setCenter(mn.position.x, mn.position.y, { zoom: 1.5, duration: 800 });
-  }, [setNodes, nodes, reactFlowInstance]);
+    setSearchDropdownOpen(query.trim().length > 0);
+  }, []);
 
   const handleExportJSON = useCallback(() => {
     const blob = new Blob([JSON.stringify({ version: '1.0.0', settings, nodes: personsRef.current, edges: generateEdgesFromPersons(personsRef.current) }, null, 2)], { type: 'application/json' });
@@ -494,6 +606,8 @@ export const FamilyTreeApp: React.FC = () => {
     const a = document.createElement('a'); a.href = url; a.download = `family-tree-${Date.now()}.json`; a.click();
     URL.revokeObjectURL(url); setShowSavePopover(false);
   }, [settings]);
+  const handleExportJSONRef = useRef(handleExportJSON);
+  handleExportJSONRef.current = handleExportJSON;
 
   const handleImportJSON = useCallback(() => { fileInputRef.current?.click(); setShowSavePopover(false); }, []);
 
@@ -516,16 +630,53 @@ export const FamilyTreeApp: React.FC = () => {
     setShowSavePopover(false);
   }, []);
 
-  const handleReset = useCallback(() => {
-    if (confirm('全てのデータを消去しますか？\n\nこの操作は取り消せません。')) {
-      localStorage.removeItem('familyTreeAutoSave'); personsRef.current = []; rebuildFlow([], settings); setPersonHistory([]); setHistoryIndex(-1); pushHistory([]);
-    }
+  // --- PDF出力 ---
+  const handleExportPdf = useCallback((paperSize: 'A4' | 'A3') => {
+    if (!flowRef.current) return;
     setShowSavePopover(false);
+    exportToPdf({
+      element: flowRef.current,
+      paperSize,
+      orientation: 'landscape',
+      title: '',
+      showDate: true,
+    }).catch(err => {
+      console.error('PDF出力に失敗しました:', err);
+      alert('PDF出力に失敗しました。');
+    });
+  }, []);
+
+  // --- 全消去（確認ダイアログ版） ---
+  const handleReset = useCallback(() => {
+    setShowSavePopover(false);
+    setConfirmDialog({
+      isOpen: true,
+      title: '全データを消去',
+      message: 'すべてのデータを消去します。この操作は元に戻せません。',
+      confirmLabel: '消去する',
+      variant: 'danger',
+      confirmText: '消去',
+      onConfirm: () => {
+        localStorage.removeItem('familyTreeAutoSave');
+        personsRef.current = [];
+        rebuildFlow([], settings);
+        setPersonHistory([]);
+        setHistoryIndex(-1);
+        pushHistory([]);
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      },
+    });
   }, [rebuildFlow, settings, pushHistory]);
+
+  // --- Zoom to Fit ---
+  const handleFitView = useCallback(() => {
+    fitView({ padding: 0.2, duration: 300 });
+  }, [fitView]);
 
   const allPersons = personsRef.current;
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < personHistory.length - 1;
+  const isEmpty = allPersons.length === 0;
 
   return (
     <div className="h-screen w-full flex flex-col" style={{ backgroundColor: '#F8FAFC' }}>
@@ -543,16 +694,46 @@ export const FamilyTreeApp: React.FC = () => {
           <span className="font-bold text-sm" style={{ color: '#1E293B' }}>家系図ツール</span>
         </div>
 
-        {/* 検索 */}
+        {/* 検索（ドロップダウン付き） */}
         <div className="flex-1 max-w-xs relative hidden md:block">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: '#94A3B8' }} />
           <Input
+            ref={searchInputRef}
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
-            placeholder="名前で検索..."
+            onFocus={() => { if (searchQuery.trim()) setSearchDropdownOpen(true); }}
+            onBlur={() => { setTimeout(() => setSearchDropdownOpen(false), 200); }}
+            placeholder="名前で検索... (Ctrl+F)"
             className="pl-8 h-8 text-xs"
             style={{ borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
           />
+          {/* 検索ドロップダウン */}
+          {searchDropdownOpen && searchResults.length > 0 && (
+            <div
+              className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border z-50 max-h-60 overflow-y-auto"
+              style={{ borderColor: '#E2E8F0' }}
+            >
+              {searchResults.map(person => (
+                <button
+                  key={person.id}
+                  className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center justify-between border-b last:border-b-0"
+                  style={{ borderColor: '#F1F5F9' }}
+                  onMouseDown={(e) => { e.preventDefault(); focusNode(person.id); }}
+                >
+                  <span className="font-medium" style={{ color: '#1E293B' }}>{getDisplayName(person)}</span>
+                  <span className="text-[10px]" style={{ color: '#94A3B8' }}>{relationshipLabels[person.relationship]}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {searchDropdownOpen && searchQuery.trim() && searchResults.length === 0 && (
+            <div
+              className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border z-50 px-3 py-2"
+              style={{ borderColor: '#E2E8F0' }}
+            >
+              <span className="text-xs" style={{ color: '#94A3B8' }}>該当なし</span>
+            </div>
+          )}
         </div>
 
         <div className="flex-1" />
@@ -596,6 +777,10 @@ export const FamilyTreeApp: React.FC = () => {
         <div className="w-12 hidden md:flex flex-col items-center py-2 gap-1 shrink-0" style={{ backgroundColor: '#fff', borderRight: '1px solid #E2E8F0' }}>
           <button onClick={handleAddPerson} className="p-2 rounded-md hover:bg-blue-50 transition-colors" title="人物を追加" style={{ color: '#2563EB' }}>
             <Plus className="w-5 h-5" />
+          </button>
+
+          <button onClick={handleFitView} className="p-2 rounded-md hover:bg-gray-100 transition-colors" title="全体表示" style={{ color: '#475569' }}>
+            <Maximize className="w-5 h-5" />
           </button>
 
           {/* 表示設定ポップオーバー */}
@@ -644,7 +829,14 @@ export const FamilyTreeApp: React.FC = () => {
                   <Upload className="w-3.5 h-3.5" />JSONインポート
                 </button>
                 <button onClick={handleExportImage} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
-                  <Download className="w-3.5 h-3.5" />画像ダウンロード
+                  <Download className="w-3.5 h-3.5" />画像ダウンロード (PNG)
+                </button>
+                <div className="my-1" style={{ borderTop: '1px solid #E2E8F0' }} />
+                <button onClick={() => handleExportPdf('A4')} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <FileText className="w-3.5 h-3.5" />PDF出力 (A4 横)
+                </button>
+                <button onClick={() => handleExportPdf('A3')} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <FileText className="w-3.5 h-3.5" />PDF出力 (A3 横)
                 </button>
                 <div className="my-1" style={{ borderTop: '1px solid #E2E8F0' }} />
                 <button onClick={handleReset} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-red-50 flex items-center gap-2" style={{ color: '#DC2626' }}>
@@ -657,6 +849,39 @@ export const FamilyTreeApp: React.FC = () => {
 
         {/* キャンバス */}
         <div className="flex-1 relative" style={{ backgroundColor: '#F8FAFC' }}>
+          {/* 空状態ガイド */}
+          {isEmpty && (
+            <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+              <div
+                className="text-center p-8 rounded-xl shadow-lg pointer-events-auto"
+                style={{ backgroundColor: '#fff', border: '1px solid #E2E8F0', maxWidth: 360 }}
+              >
+                <div className="text-4xl mb-4" style={{ color: '#CBD5E1' }}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-bold mb-2" style={{ color: '#1E293B' }}>家系図を作成しましょう</h3>
+                <p className="text-sm mb-6" style={{ color: '#64748B' }}>
+                  左の「+ 人物を追加」ボタン、<br />
+                  または下のボタンから<br />
+                  最初の人物を追加してください
+                </p>
+                <button
+                  onClick={handleAddFirstPerson}
+                  className="px-6 py-2.5 rounded-lg text-white text-sm font-medium transition-colors hover:opacity-90"
+                  style={{ backgroundColor: '#2563EB' }}
+                >
+                  <Plus className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+                  最初の人物を追加する
+                </button>
+              </div>
+            </div>
+          )}
+
           <div ref={flowRef} className="w-full h-full">
             <ReactFlow
               nodes={nodes}
@@ -671,9 +896,25 @@ export const FamilyTreeApp: React.FC = () => {
             >
               <Controls />
               <Background color="#E2E8F0" gap={20} />
+              <MiniMap
+                nodeColor={(node) => {
+                  if (node.type !== 'person') return 'transparent';
+                  if (node.data?.lifeStatus === 'deceased') return '#9CA3AF';
+                  return node.data?.gender === 'male' ? '#3B82F6' : node.data?.gender === 'female' ? '#EC4899' : '#9CA3AF';
+                }}
+                maskColor="rgba(248, 250, 252, 0.7)"
+                style={{
+                  bottom: 10,
+                  right: 10,
+                  width: 150,
+                  height: 100,
+                  border: '1px solid #E2E8F0',
+                  borderRadius: 4,
+                }}
+              />
             </ReactFlow>
           </div>
-          <div className="absolute bottom-2 right-2 text-[10px] px-2 py-0.5 rounded-full" style={{ backgroundColor: '#fff', color: '#CBD5E1', border: '1px solid #E2E8F0' }}>
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] px-2 py-0.5 rounded-full" style={{ backgroundColor: '#fff', color: '#CBD5E1', border: '1px solid #E2E8F0' }}>
             自動保存中
           </div>
         </div>
@@ -738,6 +979,27 @@ export const FamilyTreeApp: React.FC = () => {
         onDelete={handleDeletePerson}
         allPersons={allPersons}
       />
+
+      {/* 削除確認ダイアログ */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmLabel={confirmDialog.confirmLabel}
+        variant={confirmDialog.variant}
+        confirmText={confirmDialog.confirmText}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
+  );
+};
+
+// --- ReactFlowProvider でラップ ---
+export const FamilyTreeApp: React.FC = () => {
+  return (
+    <ReactFlowProvider>
+      <FamilyTreeAppInner />
+    </ReactFlowProvider>
   );
 };
