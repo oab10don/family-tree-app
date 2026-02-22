@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Switch } from './ui/switch';
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
-import { Download, Upload, RotateCcw, FileJson, Search, Undo2, Redo2, UserPlus, Menu, X, Trash2 } from 'lucide-react';
+import { Download, Upload, FileJson, Search, Undo2, Redo2, UserPlus, Menu, X, Trash2 } from 'lucide-react';
 import { DisplaySettings } from '@/types/familyTree';
 
 interface SidebarProps {
@@ -46,37 +46,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const sidebarContent = (
     <>
+      {/* ロゴ/タイトル */}
+      <div className="pb-2">
+        <h1 className="text-base font-bold" style={{ color: '#1E293B' }}>家系図ツール</h1>
+        <p className="text-xs" style={{ color: '#94A3B8' }}>Family Tree Creator</p>
+      </div>
+
+      <div style={{ borderTop: '1px solid #E2E8F0' }} />
+
+      {/* 検索 */}
       <div className="space-y-2">
-        <Label>検索</Label>
+        <Label style={{ color: '#64748B' }}>検索</Label>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4" style={{ color: '#94A3B8' }} />
           <Input
             value={searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="名前で検索..."
             className="pl-10"
+            style={{ borderColor: '#E2E8F0', backgroundColor: '#fff' }}
           />
         </div>
       </div>
 
-      <div className="border-t border-gray-300" />
+      <div style={{ borderTop: '1px solid #E2E8F0' }} />
 
+      {/* 人物追加 */}
       <Button
         onClick={onAddPerson}
-        className="w-full justify-start bg-primary text-white hover:bg-primary/90"
+        className="w-full justify-start text-white"
+        style={{ backgroundColor: '#2563EB' }}
       >
         <UserPlus className="w-4 h-4 mr-2" />
         新しい人物を追加
       </Button>
 
-      <div className="border-t border-gray-300" />
+      <div style={{ borderTop: '1px solid #E2E8F0' }} />
 
+      {/* Undo/Redo */}
       <div className="flex gap-2">
         <Button
           onClick={onUndo}
           disabled={!canUndo}
           variant="outline"
           className="flex-1"
+          style={{ borderColor: '#E2E8F0', color: '#475569' }}
           title="元に戻す (Ctrl+Z)"
         >
           <Undo2 className="w-4 h-4 mr-2" />
@@ -87,6 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           disabled={!canRedo}
           variant="outline"
           className="flex-1"
+          style={{ borderColor: '#E2E8F0', color: '#475569' }}
           title="やり直す (Ctrl+Y)"
         >
           <Redo2 className="w-4 h-4 mr-2" />
@@ -94,14 +109,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </Button>
       </div>
 
-      <div className="border-t border-gray-300" />
+      <div style={{ borderTop: '1px solid #E2E8F0' }} />
 
+      {/* 表示オプション */}
       <div className="space-y-3">
-        <h4 className="font-semibold">表示オプション</h4>
+        <h4 className="font-semibold text-sm" style={{ color: '#475569' }}>表示オプション</h4>
 
         <div className="space-y-2 p-2">
           <div className="flex items-center justify-between py-1">
-            <Label htmlFor="color-switch">性別で色分け</Label>
+            <Label htmlFor="color-switch" style={{ color: '#64748B' }}>性別で色分け</Label>
             <Switch
               id="color-switch"
               checked={settings.colorByGender}
@@ -120,7 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onSettingsChange({ ...settings, showName: checked as boolean })
                 }
               />
-              <Label htmlFor="show-name" className="text-xs">
+              <Label htmlFor="show-name" className="text-xs" style={{ color: '#64748B' }}>
                 名前
               </Label>
             </div>
@@ -133,7 +149,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onSettingsChange({ ...settings, showNotes: checked as boolean })
                 }
               />
-              <Label htmlFor="show-notes" className="text-xs">
+              <Label htmlFor="show-notes" className="text-xs" style={{ color: '#64748B' }}>
                 メモ
               </Label>
             </div>
@@ -141,15 +157,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      <div className="border-t border-gray-300" />
+      <div style={{ borderTop: '1px solid #E2E8F0' }} />
 
+      {/* 保存 & 読込 */}
       <div className="space-y-2">
-        <h4 className="font-semibold pt-2">保存 & 読込</h4>
+        <h4 className="font-semibold pt-2 text-sm" style={{ color: '#475569' }}>保存 & 読込</h4>
 
         <Button
           onClick={onExportJSON}
           variant="outline"
           className="w-full justify-start"
+          style={{ borderColor: '#E2E8F0', color: '#475569' }}
         >
           <FileJson className="w-4 h-4 mr-2" />
           JSON形式でエクスポート
@@ -159,6 +177,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={onImportJSON}
           variant="outline"
           className="w-full justify-start"
+          style={{ borderColor: '#E2E8F0', color: '#475569' }}
         >
           <Upload className="w-4 h-4 mr-2" />
           JSON形式でインポート
@@ -168,6 +187,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={onExportImage}
           variant="outline"
           className="w-full justify-start"
+          style={{ borderColor: '#E2E8F0', color: '#475569' }}
         >
           <Download className="w-4 h-4 mr-2" />
           画像としてダウンロード
@@ -190,15 +210,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* モバイル: ハンバーガーボタン */}
       <button
         onClick={() => setIsOpen(true)}
-        className="md:hidden fixed top-4 left-4 z-50 bg-white p-2 rounded-lg shadow-lg border border-gray-200"
+        className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-md shadow-md"
+        style={{ backgroundColor: '#fff', border: '1px solid #E2E8F0' }}
       >
-        <Menu className="w-6 h-6" />
+        <Menu className="w-6 h-6" style={{ color: '#475569' }} />
       </button>
 
       {/* モバイル: オーバーレイ */}
       {isOpen && (
         <div
-          className="md:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
+          className="md:hidden fixed inset-0 bg-black bg-opacity-30 z-40"
           onClick={() => setIsOpen(false)}
         />
       )}
@@ -207,15 +228,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <aside
         className={`
           fixed md:static inset-y-0 left-0 z-50
-          w-80 bg-gray-100 p-4 border-r border-gray-200
+          w-72 p-4
           flex flex-col gap-4 overflow-y-auto h-full
           transform transition-transform duration-200 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
+        style={{
+          backgroundColor: '#fff',
+          borderRight: '1px solid #E2E8F0',
+        }}
       >
         {/* モバイル: 閉じるボタン */}
         <div className="flex justify-end md:hidden">
-          <button onClick={() => setIsOpen(false)} className="text-gray-500 hover:text-gray-700">
+          <button onClick={() => setIsOpen(false)} style={{ color: '#94A3B8' }}>
             <X className="w-6 h-6" />
           </button>
         </div>

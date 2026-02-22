@@ -13,9 +13,10 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { toPng } from 'html-to-image';
-import { ChevronDown, ChevronUp, Pencil, ArrowUpDown } from 'lucide-react';
+import dagre from 'dagre';
+import { ChevronDown, ChevronUp, Pencil } from 'lucide-react';
 
-import { PersonNode, JunctionNode } from './PersonNode';
+import { PersonNode, JunctionNode, AddRelationType } from './PersonNode';
 import { Sidebar } from './Sidebar';
 import { PersonEditDialog } from './PersonEditDialog';
 import {
@@ -38,30 +39,33 @@ const nodeTypes: NodeTypes = {
 
 /** 同居グループの背景色 */
 const LIVING_GROUP_BG_COLORS: Record<number, string> = {
-  1: 'rgba(34,197,94,0.10)',
-  2: 'rgba(249,115,22,0.10)',
-  3: 'rgba(168,85,247,0.10)',
-  4: 'rgba(20,184,166,0.10)',
-  5: 'rgba(244,63,94,0.10)',
-  6: 'rgba(6,182,212,0.10)',
-  7: 'rgba(245,158,11,0.10)',
-  8: 'rgba(99,102,241,0.10)',
-  9: 'rgba(132,204,22,0.10)',
-  10: 'rgba(217,70,239,0.10)',
+  1: 'rgba(34,197,94,0.08)',
+  2: 'rgba(249,115,22,0.08)',
+  3: 'rgba(168,85,247,0.08)',
+  4: 'rgba(20,184,166,0.08)',
+  5: 'rgba(244,63,94,0.08)',
+  6: 'rgba(6,182,212,0.08)',
+  7: 'rgba(245,158,11,0.08)',
+  8: 'rgba(99,102,241,0.08)',
+  9: 'rgba(132,204,22,0.08)',
+  10: 'rgba(217,70,239,0.08)',
 };
 
 const LIVING_GROUP_BORDER_COLORS: Record<number, string> = {
-  1: 'rgba(34,197,94,0.5)',
-  2: 'rgba(249,115,22,0.5)',
-  3: 'rgba(168,85,247,0.5)',
-  4: 'rgba(20,184,166,0.5)',
-  5: 'rgba(244,63,94,0.5)',
-  6: 'rgba(6,182,212,0.5)',
-  7: 'rgba(245,158,11,0.5)',
-  8: 'rgba(99,102,241,0.5)',
-  9: 'rgba(132,204,22,0.5)',
-  10: 'rgba(217,70,239,0.5)',
+  1: 'rgba(34,197,94,0.4)',
+  2: 'rgba(249,115,22,0.4)',
+  3: 'rgba(168,85,247,0.4)',
+  4: 'rgba(20,184,166,0.4)',
+  5: 'rgba(244,63,94,0.4)',
+  6: 'rgba(6,182,212,0.4)',
+  7: 'rgba(245,158,11,0.4)',
+  8: 'rgba(99,102,241,0.4)',
+  9: 'rgba(132,204,22,0.4)',
+  10: 'rgba(217,70,239,0.4)',
 };
+
+const NODE_WIDTH = 140;
+const NODE_HEIGHT = 80;
 
 /**
  * parentIds / spouseId からエッジを自動生成する
@@ -100,13 +104,12 @@ const generateEdgesFromPersons = (persons: PersonData[]): RelationshipEdge[] => 
 };
 
 /**
- * 兄弟を続柄順でソートする（childSortOrder使用）
+ * 兄弟を続柄順でソートする
  */
 const sortSiblings = (persons: PersonData[]): PersonData[] => {
   const personMap = new Map<string, PersonData>();
   for (const p of persons) personMap.set(p.id, p);
 
-  // 親ペアキー → 子リスト
   const parentGroupMap = new Map<string, PersonData[]>();
   const noParent: PersonData[] = [];
 
@@ -120,7 +123,6 @@ const sortSiblings = (persons: PersonData[]): PersonData[] => {
     }
   }
 
-  // 各兄弟グループを続柄順でソート
   for (const [, siblings] of parentGroupMap) {
     siblings.sort((a, b) => {
       const aOrder = childSortOrder[a.relationship] ?? 99;
@@ -130,7 +132,6 @@ const sortSiblings = (persons: PersonData[]): PersonData[] => {
     });
   }
 
-  // ソート済みの順序マップを構築
   const orderMap = new Map<string, number>();
   let idx = 0;
   for (const p of noParent) {
@@ -148,24 +149,17 @@ const sortSiblings = (persons: PersonData[]): PersonData[] => {
 };
 
 /**
- * グラフ走査ベースのレイアウト計算
+ * dagre.jsを使った自動レイアウト
  */
 const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: number }> => {
   const positions = new Map<string, { x: number; y: number }>();
   if (persons.length === 0) return positions;
 
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-  const SPOUSE_GAP = isMobile ? 140 : 160;
-  const SIBLING_GAP = isMobile ? 160 : 200;
-  const GENERATION_GAP = isMobile ? 180 : 220;
-  const NODE_WIDTH = isMobile ? 110 : 130;
-
   const sorted = sortSiblings(persons);
-
   const personMap = new Map<string, PersonData>();
   for (const p of sorted) personMap.set(p.id, p);
 
-  // --- BFS世代算出 ---
+  // --- BFS世代算出（dagreのランク付け補助） ---
   const generationOf = new Map<string, number>();
   const root = sorted.find(p => p.isRepresentative) ?? sorted.find(p => p.relationship === 'self') ?? sorted[0];
   generationOf.set(root.id, 0);
@@ -219,107 +213,125 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     if (!generationOf.has(p.id)) generationOf.set(p.id, 0);
   }
 
-  // --- 世代グループ化 ---
-  const generations = new Map<number, PersonData[]>();
-  for (const p of sorted) {
-    const gen = generationOf.get(p.id)!;
-    if (!generations.has(gen)) generations.set(gen, []);
-    generations.get(gen)!.push(p);
-  }
-  const minGen = Math.min(...generations.keys());
+  // --- dagre グラフ構築 ---
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({
+    rankdir: 'TB',
+    nodesep: 60,
+    ranksep: 180,
+    marginx: 50,
+    marginy: 50,
+  });
+  g.setDefaultEdgeLabel(() => ({}));
 
-  // 配偶者ペア
+  // 配偶者ペアを特定
   const spousePairs = new Map<string, string>();
-  for (const person of sorted) {
-    if (person.spouseId) spousePairs.set(person.id, person.spouseId);
-  }
-
-  // --- Pass 1: ユニット構築 ---
-  type Unit = { ids: string[]; width: number; centerX: number };
-  const genUnits = new Map<number, Unit[]>();
-
-  const sortedGens = Array.from(generations.keys()).sort((a, b) => a - b);
-
-  for (const gen of sortedGens) {
-    const genPersons = generations.get(gen)!;
-    const placed = new Set<string>();
-    const units: Unit[] = [];
-
-    for (const person of genPersons) {
-      if (placed.has(person.id)) continue;
-      const spouseId = spousePairs.get(person.id);
-      if (spouseId && genPersons.some(p => p.id === spouseId) && !placed.has(spouseId)) {
-        units.push({ ids: [person.id, spouseId], width: SPOUSE_GAP + NODE_WIDTH, centerX: 0 });
-        placed.add(person.id);
-        placed.add(spouseId);
-      } else {
-        units.push({ ids: [person.id], width: NODE_WIDTH, centerX: 0 });
-        placed.add(person.id);
+  for (const p of sorted) {
+    if (p.spouseId && personMap.has(p.spouseId)) {
+      const key = [p.id, p.spouseId].sort().join('-');
+      if (!spousePairs.has(p.id)) {
+        spousePairs.set(p.id, p.spouseId);
       }
     }
-    genUnits.set(gen, units);
   }
 
-  // --- Pass 2: レイアウト ---
-  const placeUnits = (units: Unit[]) => {
-    let currentX = 0;
-    for (let i = 0; i < units.length; i++) {
-      if (i > 0) currentX += SIBLING_GAP;
-      units[i].centerX = currentX + units[i].width / 2;
-      currentX += units[i].width;
-    }
-    const totalWidth = currentX;
-    const offset = totalWidth / 2;
-    for (const u of units) u.centerX -= offset;
-  };
+  // 処理済み配偶者ペアを追跡
+  const processedSpouse = new Set<string>();
 
-  const topUnits = genUnits.get(sortedGens[0]);
-  if (topUnits) placeUnits(topUnits);
+  // ノード追加（配偶者ペアは仮想コンパウンドノードとして追加）
+  for (const p of sorted) {
+    g.setNode(p.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+  }
 
-  for (let gi = 1; gi < sortedGens.length; gi++) {
-    const gen = sortedGens[gi];
-    const units = genUnits.get(gen)!;
-    const parentGen = sortedGens[gi - 1];
-    const parentUnits = genUnits.get(parentGen);
-
-    for (const unit of units) {
-      const parentPositions: number[] = [];
-      for (const id of unit.ids) {
-        const person = personMap.get(id);
-        if (person?.parentIds) {
-          for (const pid of person.parentIds) {
-            if (parentUnits) {
-              const pu = parentUnits.find(u => u.ids.includes(pid));
-              if (pu) parentPositions.push(pu.centerX);
-            }
-          }
+  // 親子エッジのみ追加（配偶者はランク外で横並びにする）
+  for (const p of sorted) {
+    if (p.parentIds) {
+      for (const pid of p.parentIds) {
+        if (personMap.has(pid)) {
+          g.setEdge(pid, p.id);
         }
       }
-      if (parentPositions.length > 0) {
-        const avgX = parentPositions.reduce((a, b) => a + b, 0) / parentPositions.length;
-        unit.centerX = avgX;
-      }
     }
+  }
 
-    // 重なり解消
-    units.sort((a, b) => a.centerX - b.centerX);
-    for (let i = 1; i < units.length; i++) {
-      const minX = units[i - 1].centerX + units[i - 1].width / 2 + SIBLING_GAP + units[i].width / 2;
-      if (units[i].centerX < minX) {
-        units[i].centerX = minX;
+  dagre.layout(g);
+
+  // dagreの結果を取得
+  for (const p of sorted) {
+    const nodeWithPosition = g.node(p.id);
+    if (nodeWithPosition) {
+      positions.set(p.id, {
+        x: nodeWithPosition.x - NODE_WIDTH / 2,
+        y: nodeWithPosition.y - NODE_HEIGHT / 2,
+      });
+    }
+  }
+
+  // 配偶者を横並びに補正
+  const adjustedSpouse = new Set<string>();
+  for (const p of sorted) {
+    if (p.spouseId && personMap.has(p.spouseId) && !adjustedSpouse.has(p.id) && !adjustedSpouse.has(p.spouseId)) {
+      const pos1 = positions.get(p.id);
+      const pos2 = positions.get(p.spouseId);
+      if (pos1 && pos2) {
+        // 同じY座標にし、横に並べる
+        const avgY = Math.min(pos1.y, pos2.y);
+        const centerX = (pos1.x + pos2.x) / 2;
+        const SPOUSE_GAP = 160;
+        positions.set(p.id, { x: centerX - SPOUSE_GAP / 2, y: avgY });
+        positions.set(p.spouseId, { x: centerX + SPOUSE_GAP / 2, y: avgY });
+        adjustedSpouse.add(p.id);
+        adjustedSpouse.add(p.spouseId);
       }
     }
   }
 
-  // --- Pass 3: ノード位置確定 ---
-  for (const [gen, units] of genUnits) {
-    const y = (gen - minGen) * GENERATION_GAP;
-    for (const unit of units) {
-      if (unit.ids.length === 2) {
-        positions.set(unit.ids[0], { x: unit.centerX - SPOUSE_GAP / 2, y });
-        positions.set(unit.ids[1], { x: unit.centerX + SPOUSE_GAP / 2, y });
-      } else {
-        positions.set(unit.ids[0], { x: unit.centerX, y });
+  // 子を両親の中央下に再配置
+  const parentPairChildren = new Map<string, string[]>();
+  for (const p of sorted) {
+    if (p.parentIds && p.parentIds.length > 0) {
+      const key = [...p.parentIds].sort().join(',');
+      if (!parentPairChildren.has(key)) parentPairChildren.set(key, []);
+      parentPairChildren.get(key)!.push(p.id);
+    }
+  }
+
+  for (const [parentKey, childIds] of parentPairChildren) {
+    const parentIdsList = parentKey.split(',');
+    const parentXs = parentIdsList.map(id => positions.get(id)?.x ?? 0);
+    const parentCenter = parentXs.reduce((a, b) => a + b, 0) / parentXs.length + NODE_WIDTH / 2;
+
+    const CHILD_GAP = 180;
+    const totalWidth = (childIds.length - 1) * CHILD_GAP;
+    const startX = parentCenter - totalWidth / 2 - NODE_WIDTH / 2;
+
+    for (let i = 0; i < childIds.length; i++) {
+      const cid = childIds[i];
+      const existingPos = positions.get(cid);
+      if (existingPos) {
+        positions.set(cid, { x: startX + i * CHILD_GAP, y: existingPos.y });
+      }
+    }
+  }
+
+  // 重なり解消（同世代内）
+  const genGroups = new Map<number, string[]>();
+  for (const p of sorted) {
+    const gen = generationOf.get(p.id) ?? 0;
+    if (!genGroups.has(gen)) genGroups.set(gen, []);
+    genGroups.get(gen)!.push(p.id);
+  }
+
+  for (const [, ids] of genGroups) {
+    const sortedByX = ids.sort((a, b) => (positions.get(a)?.x ?? 0) - (positions.get(b)?.x ?? 0));
+    for (let i = 1; i < sortedByX.length; i++) {
+      const prev = positions.get(sortedByX[i - 1]);
+      const curr = positions.get(sortedByX[i]);
+      if (prev && curr) {
+        const minX = prev.x + NODE_WIDTH + 40;
+        if (curr.x < minX) {
+          positions.set(sortedByX[i], { x: minX, y: curr.y });
+        }
       }
     }
   }
@@ -328,7 +340,8 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
 };
 
 /**
- * RelationshipEdge[] + positions → ReactFlow Edge[] + 中間ノード
+ * RelationshipEdge[] + positions → ReactFlow Edge[] + ジャンクションノード
+ * 関係線の種類分け実装
  */
 const buildFlowElements = (
   relEdges: RelationshipEdge[],
@@ -361,7 +374,6 @@ const buildFlowElements = (
         if (pos1 && pos2) {
           const jId = `junction-${pairKey}`;
           const jx = (pos1.x + pos2.x) / 2;
-          // 配偶者線（ノード中央高さ）と同じ位置に置きT字を形成
           const jy = Math.max(pos1.y, pos2.y) + 45;
 
           junctionNodes.push({
@@ -379,21 +391,35 @@ const buildFlowElements = (
 
       const jId = spouseJunctions.get(pairKey);
       if (jId) {
+        // 親子線: 実線、少し太め、ダークグレー
         edges.push({
           id: `e-${jId}-${childId}`,
           source: jId,
           target: childId,
           type: 'smoothstep',
-          style: { stroke: '#6b7280', strokeWidth: 2 },
-          zIndex: 0,
+          style: { stroke: '#475569', strokeWidth: 2 },
+          zIndex: 1,
         });
       }
     }
   }
 
-  // 通常のエッジ生成
+  // エッジ生成
   for (const edge of relEdges) {
     if (edge.type === 'spouse') {
+      // 配偶者線: 二重線風（太い白線 + 細い色線）
+      // 背景の太い線
+      edges.push({
+        id: `${edge.id}-bg`,
+        source: edge.source,
+        target: edge.target,
+        type: 'straight',
+        sourceHandle: 'right-source',
+        targetHandle: 'left-target',
+        style: { stroke: '#2563EB', strokeWidth: 5 },
+        zIndex: 0,
+      });
+      // 中央の白抜き線
       edges.push({
         id: edge.id,
         source: edge.source,
@@ -401,24 +427,25 @@ const buildFlowElements = (
         type: 'straight',
         sourceHandle: 'right-source',
         targetHandle: 'left-target',
-        style: { stroke: '#9ca3af', strokeWidth: 2 },
+        style: { stroke: '#F8FAFC', strokeWidth: 2 },
         label: edge.label,
-        zIndex: 0,
+        zIndex: 1,
       });
       continue;
     }
 
-    // parent-child: 2親の子はスキップ
+    // parent-child: 2親の子はスキップ（junction経由）
     if (twoParentChildren.has(edge.target)) continue;
 
+    // 親子線: 実線
     edges.push({
       id: edge.id,
       source: edge.source,
       target: edge.target,
       type: 'smoothstep',
-      style: { stroke: '#6b7280', strokeWidth: 2 },
+      style: { stroke: '#475569', strokeWidth: 2 },
       label: edge.label,
-      zIndex: 0,
+      zIndex: 1,
     });
   }
 
@@ -434,12 +461,6 @@ const MemberTable: React.FC<{
   onEdit: (person: PersonData) => void;
   onReorder: (persons: PersonData[]) => void;
 }> = ({ persons, allPersons, onEdit, onReorder }) => {
-  const findName = (id?: string) => {
-    if (!id) return '-';
-    const p = allPersons.find(person => person.id === id);
-    return p ? getDisplayName(p) : '-';
-  };
-
   const getParentNames = (parentIds?: string[]) => {
     if (!parentIds || parentIds.length === 0) return { father: '-', mother: '-' };
     const father = parentIds.map(id => allPersons.find(p => p.id === id)).find(p => p?.gender === 'male');
@@ -468,46 +489,47 @@ const MemberTable: React.FC<{
     <div className="overflow-x-auto">
       <table className="min-w-full text-xs border-collapse">
         <thead>
-          <tr className="bg-gray-100 border-b">
-            <th className="px-2 py-2 text-left font-semibold">名前</th>
-            <th className="px-2 py-2 text-left font-semibold">続柄</th>
-            <th className="px-2 py-2 text-left font-semibold">性別</th>
-            <th className="px-2 py-2 text-left font-semibold">父</th>
-            <th className="px-2 py-2 text-left font-semibold">母</th>
-            <th className="px-2 py-2 text-left font-semibold">同居</th>
-            <th className="px-2 py-2 text-left font-semibold hidden lg:table-cell">住所</th>
-            <th className="px-2 py-2 text-left font-semibold hidden lg:table-cell">電話</th>
-            <th className="px-2 py-2 text-center font-semibold">並替</th>
-            <th className="px-2 py-2 text-center font-semibold">操作</th>
+          <tr style={{ backgroundColor: '#F1F5F9' }} className="border-b">
+            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>名前</th>
+            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>続柄</th>
+            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>性別</th>
+            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>父</th>
+            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>母</th>
+            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>既往歴</th>
+            <th className="px-2 py-2 text-left font-semibold hidden lg:table-cell" style={{ color: '#475569' }}>同居</th>
+            <th className="px-2 py-2 text-left font-semibold hidden lg:table-cell" style={{ color: '#475569' }}>住所</th>
+            <th className="px-2 py-2 text-center font-semibold" style={{ color: '#475569' }}>並替</th>
+            <th className="px-2 py-2 text-center font-semibold" style={{ color: '#475569' }}>操作</th>
           </tr>
         </thead>
         <tbody>
           {persons.map((person, index) => {
             const parents = getParentNames(person.parentIds);
             return (
-              <tr key={person.id} className="border-b hover:bg-gray-50">
-                <td className="px-2 py-1.5 font-medium">{getDisplayName(person)}</td>
-                <td className="px-2 py-1.5">{relationshipLabels[person.relationship] ?? '-'}</td>
-                <td className="px-2 py-1.5">
+              <tr key={person.id} className="border-b hover:bg-blue-50/30">
+                <td className="px-2 py-1.5 font-medium" style={{ color: '#1E293B' }}>{getDisplayName(person)}</td>
+                <td className="px-2 py-1.5" style={{ color: '#64748B' }}>{relationshipLabels[person.relationship] ?? '-'}</td>
+                <td className="px-2 py-1.5" style={{ color: '#64748B' }}>
                   {person.gender === 'male' ? '男' : person.gender === 'female' ? '女' : '他'}
                 </td>
-                <td className="px-2 py-1.5">{parents.father}</td>
-                <td className="px-2 py-1.5">{parents.mother}</td>
-                <td className="px-2 py-1.5">
+                <td className="px-2 py-1.5" style={{ color: '#64748B' }}>{parents.father}</td>
+                <td className="px-2 py-1.5" style={{ color: '#64748B' }}>{parents.mother}</td>
+                <td className="px-2 py-1.5" style={{ color: '#DC2626' }}>
+                  {person.medicalHistory || '-'}
+                </td>
+                <td className="px-2 py-1.5 hidden lg:table-cell" style={{ color: '#64748B' }}>
                   {person.livingTogether && person.livingGroup ? person.livingGroup : '-'}
                 </td>
-                <td className="px-2 py-1.5 hidden lg:table-cell max-w-[120px] truncate">
+                <td className="px-2 py-1.5 hidden lg:table-cell max-w-[120px] truncate" style={{ color: '#64748B' }}>
                   {person.address || '-'}
-                </td>
-                <td className="px-2 py-1.5 hidden lg:table-cell">
-                  {person.phone || '-'}
                 </td>
                 <td className="px-2 py-1.5 text-center">
                   <div className="flex gap-0.5 justify-center">
                     <button
                       onClick={() => moveUp(index)}
                       disabled={index === 0}
-                      className="text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                      className="hover:text-blue-600 disabled:opacity-30"
+                      style={{ color: '#94A3B8' }}
                       title="上へ"
                     >
                       <ChevronUp className="w-3.5 h-3.5" />
@@ -515,7 +537,8 @@ const MemberTable: React.FC<{
                     <button
                       onClick={() => moveDown(index)}
                       disabled={index === persons.length - 1}
-                      className="text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                      className="hover:text-blue-600 disabled:opacity-30"
+                      style={{ color: '#94A3B8' }}
                       title="下へ"
                     >
                       <ChevronDown className="w-3.5 h-3.5" />
@@ -525,7 +548,8 @@ const MemberTable: React.FC<{
                 <td className="px-2 py-1.5 text-center">
                   <button
                     onClick={() => onEdit(person)}
-                    className="text-blue-600 hover:text-blue-800"
+                    className="hover:text-blue-700"
+                    style={{ color: '#2563EB' }}
                     title="編集"
                   >
                     <Pencil className="w-3.5 h-3.5" />
@@ -554,20 +578,18 @@ const buildLivingGroupNodes = (
     const pos = positions.get(p.id);
     if (!pos) continue;
 
-    const NODE_W = 140;
-    const NODE_H = 80;
     const existing = groups.get(p.livingGroup);
     if (existing) {
       existing.minX = Math.min(existing.minX, pos.x);
       existing.minY = Math.min(existing.minY, pos.y);
-      existing.maxX = Math.max(existing.maxX, pos.x + NODE_W);
-      existing.maxY = Math.max(existing.maxY, pos.y + NODE_H);
+      existing.maxX = Math.max(existing.maxX, pos.x + NODE_WIDTH);
+      existing.maxY = Math.max(existing.maxY, pos.y + NODE_HEIGHT);
     } else {
       groups.set(p.livingGroup, {
         minX: pos.x,
         minY: pos.y,
-        maxX: pos.x + NODE_W,
-        maxY: pos.y + NODE_H,
+        maxX: pos.x + NODE_WIDTH,
+        maxY: pos.y + NODE_HEIGHT,
       });
     }
   }
@@ -587,9 +609,9 @@ const buildLivingGroupNodes = (
       style: {
         width: bounds.maxX - bounds.minX + PADDING * 2,
         height: bounds.maxY - bounds.minY + PADDING * 2,
-        backgroundColor: LIVING_GROUP_BG_COLORS[groupNum] ?? 'rgba(34,197,94,0.10)',
-        border: `2px dashed ${LIVING_GROUP_BORDER_COLORS[groupNum] ?? 'rgba(34,197,94,0.5)'}`,
-        borderRadius: '12px',
+        backgroundColor: LIVING_GROUP_BG_COLORS[groupNum] ?? 'rgba(34,197,94,0.08)',
+        border: `2px dashed ${LIVING_GROUP_BORDER_COLORS[groupNum] ?? 'rgba(34,197,94,0.4)'}`,
+        borderRadius: '8px',
         zIndex: -1,
         pointerEvents: 'none' as const,
       },
@@ -602,12 +624,7 @@ const buildLivingGroupNodes = (
 };
 
 /**
- * 代表者からの親等を BFS で計算する。
- * 親子関係 = 1親等、配偶者関係 = 0（経路探索用、表示は「配」）。
- * 返り値: Map<personId, { degree: number; isSpouseEdge: boolean }>
- *   - 代表者本人: degree=0, isSpouseEdge=false
- *   - 配偶者経由で degree=0: isSpouseEdge=true → 表示「配」
- *   - それ以外: degree=N → 表示「N」
+ * 代表者からの親等をBFSで計算する
  */
 const calculateKinshipDegrees = (
   persons: PersonData[],
@@ -621,7 +638,6 @@ const calculateKinshipDegrees = (
   const personMap = new Map<string, PersonData>();
   for (const p of persons) personMap.set(p.id, p);
 
-  // 隣接リスト: { targetId, weight, isSpouseEdge }
   const adjacency = new Map<string, { targetId: string; weight: number; isSpouseEdge: boolean }[]>();
 
   const addEdge = (from: string, to: string, weight: number, isSpouseEdge: boolean) => {
@@ -630,7 +646,6 @@ const calculateKinshipDegrees = (
   };
 
   for (const p of persons) {
-    // 親子関係（双方向、各1親等）
     if (p.parentIds) {
       for (const pid of p.parentIds) {
         if (personMap.has(pid)) {
@@ -639,16 +654,13 @@ const calculateKinshipDegrees = (
         }
       }
     }
-    // 配偶者関係（双方向、0親等 = 経路探索コスト0）
     if (p.spouseId && personMap.has(p.spouseId)) {
       addEdge(p.id, p.spouseId, 0, true);
       addEdge(p.spouseId, p.id, 0, true);
     }
   }
 
-  // BFS (Dijkstra-like with weights 0 and 1)
   const visited = new Map<string, { degree: number; viaSpouse: boolean }>();
-  // Use deque: weight-0 edges go to front, weight-1 edges go to back (0-1 BFS)
   const deque: { id: string; degree: number; viaSpouse: boolean }[] = [];
   deque.push({ id: representative.id, degree: 0, viaSpouse: false });
 
@@ -663,7 +675,6 @@ const calculateKinshipDegrees = (
       const newDegree = current.degree + neighbor.weight;
       const viaSpouse = current.viaSpouse || neighbor.isSpouseEdge;
       if (neighbor.weight === 0) {
-        // 0-cost edge: add to front of deque
         deque.unshift({ id: neighbor.targetId, degree: newDegree, viaSpouse });
       } else {
         deque.push({ id: neighbor.targetId, degree: newDegree, viaSpouse });
@@ -691,10 +702,105 @@ export const FamilyTreeApp: React.FC = () => {
   const [personHistory, setPersonHistory] = useState<PersonData[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
-  // PersonData[]をソースとして管理
   const personsRef = useRef<PersonData[]>([]);
 
-  /** PersonData[]からノード＆エッジを再構築 */
+  /** +ボタンから関係者を追加するハンドラ */
+  const handleAddRelation = useCallback((personId: string, relationType: AddRelationType) => {
+    const currentPerson = personsRef.current.find(p => p.id === personId);
+    if (!currentPerson) return;
+
+    const newId = `p${Date.now()}`;
+    let newPerson: PersonData;
+
+    switch (relationType) {
+      case 'father':
+        newPerson = {
+          id: newId,
+          name: '',
+          gender: 'male',
+          lifeStatus: 'alive',
+          relationship: 'father',
+          isRepresentative: false,
+        };
+        // 既存の人物にparentIdとして追加
+        const withFather = personsRef.current.map(p => {
+          if (p.id === personId) {
+            const parentIds = p.parentIds ? [...p.parentIds.filter(pid => {
+              const parent = personsRef.current.find(pp => pp.id === pid);
+              return parent?.gender !== 'male';
+            }), newId] : [newId];
+            return { ...p, parentIds };
+          }
+          return p;
+        });
+        updatePersonsInternal([...withFather, newPerson]);
+        setSelectedPerson(newPerson);
+        setIsDialogOpen(true);
+        return;
+
+      case 'mother':
+        newPerson = {
+          id: newId,
+          name: '',
+          gender: 'female',
+          lifeStatus: 'alive',
+          relationship: 'mother',
+          isRepresentative: false,
+        };
+        const withMother = personsRef.current.map(p => {
+          if (p.id === personId) {
+            const parentIds = p.parentIds ? [...p.parentIds.filter(pid => {
+              const parent = personsRef.current.find(pp => pp.id === pid);
+              return parent?.gender !== 'female';
+            }), newId] : [newId];
+            return { ...p, parentIds };
+          }
+          return p;
+        });
+        updatePersonsInternal([...withMother, newPerson]);
+        setSelectedPerson(newPerson);
+        setIsDialogOpen(true);
+        return;
+
+      case 'spouse':
+        newPerson = {
+          id: newId,
+          name: '',
+          gender: currentPerson.gender === 'male' ? 'female' : 'male',
+          lifeStatus: 'alive',
+          relationship: 'spouse',
+          spouseId: personId,
+          isRepresentative: false,
+        };
+        const withSpouse = personsRef.current.map(p => {
+          if (p.id === personId) return { ...p, spouseId: newId };
+          return p;
+        });
+        updatePersonsInternal([...withSpouse, newPerson]);
+        setSelectedPerson(newPerson);
+        setIsDialogOpen(true);
+        return;
+
+      case 'child':
+        newPerson = {
+          id: newId,
+          name: '',
+          gender: 'male',
+          lifeStatus: 'alive',
+          relationship: 'other',
+          isRepresentative: false,
+          parentIds: currentPerson.spouseId
+            ? [personId, currentPerson.spouseId]
+            : [personId],
+        };
+        updatePersonsInternal([...personsRef.current, newPerson]);
+        setSelectedPerson(newPerson);
+        setIsDialogOpen(true);
+        return;
+    }
+  }, []);
+
+  /** PersonData[]からノード&エッジを再構築 */
   const rebuildFlow = useCallback((persons: PersonData[], displaySettings: DisplaySettings) => {
     personsRef.current = persons;
     const positions = calculateLayout(persons);
@@ -715,13 +821,14 @@ export const FamilyTreeApp: React.FC = () => {
           settings: displaySettings,
           kinshipDegree: kinship?.degree,
           kinshipViaSpouse: kinship?.viaSpouse,
+          onAddRelation: handleAddRelation,
         },
       };
     });
 
     setNodes([...livingGroupNodes, ...personNodes, ...junctionNodes]);
     setEdges(flowEdges);
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, handleAddRelation]);
 
   /** 履歴にスナップショットを追加 */
   const pushHistory = useCallback((persons: PersonData[]) => {
@@ -741,6 +848,14 @@ export const FamilyTreeApp: React.FC = () => {
     }
     rebuildFlow(persons, settings);
   }, [rebuildFlow, settings, pushHistory]);
+
+  /** handleAddRelationから呼ばれる内部更新（settingsのclosure問題回避） */
+  const updatePersonsRef = useRef(updatePersons);
+  updatePersonsRef.current = updatePersons;
+
+  const updatePersonsInternal = useCallback((persons: PersonData[]) => {
+    updatePersonsRef.current(persons);
+  }, []);
 
   // 初回ロード
   useEffect(() => {
@@ -861,27 +976,23 @@ export const FamilyTreeApp: React.FC = () => {
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     if (node.type !== 'person') return;
-    const { settings: _, label: __, ...personData } = node.data;
+    const { settings: _, label: __, onAddRelation: ___, ...personData } = node.data;
     setSelectedPerson(personData as PersonData);
     setIsDialogOpen(true);
   }, []);
 
-  /** 保存時に配偶者の双方向同期 + 代表者の排他制御を行う */
   const handleSavePerson = useCallback(
     (updatedPerson: PersonData) => {
       let allPersons = personsRef.current.map((p) =>
         p.id === updatedPerson.id ? updatedPerson : p
       );
 
-      // 代表者の排他制御: この人が代表者になった場合、他の全員の代表者フラグを解除
       if (updatedPerson.isRepresentative) {
         allPersons = allPersons.map(p =>
           p.id !== updatedPerson.id ? { ...p, isRepresentative: false } : p
         );
       }
 
-      // 配偶者の双方向同期
-      // 1. この人が配偶者を設定した場合、相手のspouseIdも更新
       if (updatedPerson.spouseId) {
         allPersons = allPersons.map(p =>
           p.id === updatedPerson.spouseId
@@ -890,7 +1001,6 @@ export const FamilyTreeApp: React.FC = () => {
         );
       }
 
-      // 2. 以前この人を配偶者にしていた人の参照を解除
       const oldPerson = personsRef.current.find(p => p.id === updatedPerson.id);
       if (oldPerson?.spouseId && oldPerson.spouseId !== updatedPerson.spouseId) {
         allPersons = allPersons.map(p =>
@@ -900,7 +1010,6 @@ export const FamilyTreeApp: React.FC = () => {
         );
       }
 
-      // 3. 配偶者を解除した場合、相手側も解除
       if (!updatedPerson.spouseId && oldPerson?.spouseId) {
         allPersons = allPersons.map(p =>
           p.id === oldPerson.spouseId && p.spouseId === updatedPerson.id
@@ -1002,7 +1111,7 @@ export const FamilyTreeApp: React.FC = () => {
 
   const handleExportImage = useCallback(() => {
     if (flowRef.current) {
-      toPng(flowRef.current, { backgroundColor: '#fcf9f2', cacheBust: true })
+      toPng(flowRef.current, { backgroundColor: '#F8FAFC', cacheBust: true })
         .then((dataUrl) => {
           const link = document.createElement('a');
           link.href = dataUrl;
@@ -1029,7 +1138,7 @@ export const FamilyTreeApp: React.FC = () => {
   const allPersons = personsRef.current;
 
   return (
-    <div className="h-screen w-full font-sans bg-gray-50 flex">
+    <div className="h-screen w-full flex" style={{ backgroundColor: '#F8FAFC' }}>
       <Sidebar
         settings={settings}
         onSettingsChange={setSettings}
@@ -1054,10 +1163,11 @@ export const FamilyTreeApp: React.FC = () => {
           className="hidden"
         />
 
-        <div className="border-b border-gray-200">
+        <div style={{ borderBottom: '1px solid #E2E8F0' }}>
           <button
             onClick={() => setShowFamilyTree(!showFamilyTree)}
-            className="w-full flex items-center justify-between px-4 py-2 bg-gray-50 hover:bg-gray-100 text-sm font-medium text-gray-700"
+            className="w-full flex items-center justify-between px-4 py-2 hover:bg-blue-50/50 text-sm font-medium transition-colors"
+            style={{ backgroundColor: '#F8FAFC', color: '#475569' }}
           >
             <span>家系図</span>
             {showFamilyTree ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -1065,7 +1175,7 @@ export const FamilyTreeApp: React.FC = () => {
         </div>
 
         {showFamilyTree && (
-          <div className="relative" style={{ backgroundColor: '#fcf9f2', height: '50%', minHeight: 200 }}>
+          <div className="relative" style={{ backgroundColor: '#F8FAFC', height: '50%', minHeight: 200 }}>
             <div ref={flowRef} className="w-full h-full">
               <ReactFlow
                 nodes={nodes}
@@ -1079,18 +1189,21 @@ export const FamilyTreeApp: React.FC = () => {
                 fitView
               >
                 <Controls />
-                <Background color="#ccc" gap={20} />
+                <Background color="#E2E8F0" gap={20} />
               </ReactFlow>
             </div>
 
-            <div className="absolute bottom-2 right-2 text-xs text-gray-500 bg-white px-3 py-1 rounded-full shadow">
+            <div
+              className="absolute bottom-2 right-2 text-xs px-3 py-1 rounded-full shadow-sm"
+              style={{ backgroundColor: '#fff', color: '#94A3B8', border: '1px solid #E2E8F0' }}
+            >
               自動保存中...
             </div>
           </div>
         )}
 
-        <div className="flex-1 overflow-auto p-4 bg-white">
-          <h3 className="text-sm font-semibold mb-2 text-gray-700">メンバー一覧</h3>
+        <div className="flex-1 overflow-auto p-4" style={{ backgroundColor: '#fff' }}>
+          <h3 className="text-sm font-semibold mb-2" style={{ color: '#475569' }}>メンバー一覧</h3>
           <MemberTable
             persons={allPersons}
             allPersons={allPersons}

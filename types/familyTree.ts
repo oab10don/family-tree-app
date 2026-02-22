@@ -55,6 +55,7 @@ export interface PersonData {
   deathDate?: string;
   photo?: string; // 互換性のため残置（UIでは非使用）
   notes?: string;
+  medicalHistory?: string; // 既往歴
   isRepresentative?: boolean;
   parentIds?: string[];
   spouseId?: string;
@@ -70,7 +71,7 @@ export interface PersonData {
  * 性別記号を付与した表示名を返す（データは汚さない）
  */
 export const getDisplayName = (person: PersonData): string => {
-  const symbol = person.gender === 'male' ? '◻ ' : person.gender === 'female' ? '◯ ' : '';
+  const symbol = person.gender === 'male' ? '♂ ' : person.gender === 'female' ? '♀ ' : '';
   return `${symbol}${person.name}`;
 };
 
