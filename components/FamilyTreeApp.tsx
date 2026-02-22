@@ -10,6 +10,8 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   NodeTypes,
+  EdgeTypes,
+  EdgeProps,
   ReactFlowInstance,
   useReactFlow,
   ReactFlowProvider,
@@ -62,6 +64,33 @@ const nodeTypes: NodeTypes = {
   person: PersonNode,
   junction: JunctionNode,
 };
+
+/** 家系図専用カスタム親子エッジ（L字型、角丸） */
+const FamilyEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, targetY, style }) => {
+  let pathD: string;
+  if (Math.abs(sourceX - targetX) < 2) {
+    // 真上から真下へ → 直線
+    pathD = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
+  } else {
+    // L字型: 垂直に下降 → 水平移動 → 垂直に下降
+    const midY = sourceY + (targetY - sourceY) * 0.5;
+    pathD = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
+  }
+  return (
+    <path
+      id={id}
+      d={pathD}
+      fill="none"
+      stroke={(style?.stroke as string) || '#475569'}
+      strokeWidth={(style?.strokeWidth as number) || 2}
+      strokeLinejoin="round"
+      className="react-flow__edge-path"
+      style={{ pointerEvents: 'stroke' }}
+    />
+  );
+};
+
+const edgeTypes: EdgeTypes = { familyEdge: FamilyEdge };
 
 /** 同居グループの背景色 */
 const LIVING_GROUP_BG_COLORS: Record<number, string> = {
@@ -257,7 +286,7 @@ const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, 
         }
       }
       const jId = spouseJunctions.get(pairKey);
-      if (jId) edges.push({ id: `e-${jId}-${childId}`, source: jId, target: childId, type: 'smoothstep', style: { stroke: '#475569', strokeWidth: 2 }, zIndex: 1 });
+      if (jId) edges.push({ id: `e-${jId}-${childId}`, source: jId, target: childId, type: 'familyEdge', style: { stroke: '#475569', strokeWidth: 2 }, zIndex: 1 });
     }
   }
   for (const edge of relEdges) {
@@ -267,7 +296,7 @@ const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, 
       continue;
     }
     if (twoParentChildren.has(edge.target)) continue;
-    edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'smoothstep', style: { stroke: '#475569', strokeWidth: 2 }, zIndex: 1 });
+    edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'familyEdge', style: { stroke: '#475569', strokeWidth: 2 }, zIndex: 1 });
   }
   return { edges, junctionNodes };
 };
@@ -891,8 +920,10 @@ const FamilyTreeAppInner: React.FC = () => {
               onNodeClick={onNodeClick}
               onInit={setReactFlowInstance}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               nodesDraggable={false}
               fitView
+              style={{ backgroundColor: '#F8FAFC' }}
             >
               <Controls />
               <Background color="#E2E8F0" gap={20} />

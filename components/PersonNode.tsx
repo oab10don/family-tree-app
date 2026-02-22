@@ -61,6 +61,10 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
   const birthWareki = data.birthDate ? toWarekiShort(data.birthDate) : null;
   const deathDisplay = data.deathDate ? formatDateShort(data.deathDate) : null;
 
+  // インジケータ表示判定
+  const hasLiving = data.livingTogether && data.livingGroup;
+  const hasKinship = data.kinshipDegree !== undefined && !data.isRepresentative;
+
   return (
     <>
       <Handle type="target" position={Position.Top} className="opacity-0" />
@@ -71,7 +75,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
         onMouseEnter={() => { setShowTooltip(true); setShowActions(true); }}
         onMouseLeave={() => { setShowTooltip(false); setShowActions(false); }}
       >
-        {/* +ボタン群 */}
+        {/* +ボタン群（ホバー時のみ表示） */}
         {showActions && (
           <>
             <div className="absolute -top-9 left-1/2 -translate-x-1/2 flex gap-1 z-20">
@@ -141,49 +145,16 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
           )}
 
           <div className="relative px-3 py-2">
-            {/* バッジ群 */}
-            {data.isRepresentative && (
-              <div
-                className="absolute -top-1.5 -left-0.5 flex items-center justify-center"
-                style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: '#EAB308', color: '#fff' }}
-              >
-                <Crown className="w-3 h-3" />
-              </div>
-            )}
-
-            {isDeceased && (
-              <div
-                className="absolute -top-1.5 -right-1.5 flex items-center justify-center text-xs font-bold"
-                style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: '#64748B', color: '#fff' }}
-              >
-                <span style={{ fontSize: 11 }}>†</span>
-              </div>
-            )}
-
-            {data.livingTogether && data.livingGroup && (
-              <div
-                className="absolute -bottom-1.5 -right-1.5 flex items-center justify-center"
-                style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: '#059669', color: '#fff', fontSize: 9 }}
-              >
-                <Home className="w-2.5 h-2.5" />
-                <span className="ml-px" style={{ fontSize: 8 }}>{data.livingGroup}</span>
-              </div>
-            )}
-
-            {data.kinshipDegree !== undefined && !data.isRepresentative && (
-              <div
-                className="absolute -bottom-1.5 -left-0.5 flex items-center justify-center font-bold"
-                style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: '#4F46E5', color: '#fff', fontSize: 10 }}
-              >
-                {data.kinshipDegree === 0 && data.kinshipViaSpouse ? '配' : data.kinshipDegree}
-              </div>
-            )}
-
-            {/* 1行目: 性別アイコン + 名前 */}
+            {/* 1行目: 代表者クラウン + 性別アイコン + 名前 + 故人表示 */}
             {settings.showName && (
-              <div className="text-sm font-bold" style={{ color: textColor }}>
-                {getDisplayName(data)}
-                {isDeceased && <span className="text-[10px] font-normal ml-1" style={{ color: '#94A3B8' }}>（故）</span>}
+              <div className="text-sm font-bold flex items-center gap-1" style={{ color: textColor }}>
+                {data.isRepresentative && (
+                  <Crown className="w-3.5 h-3.5 shrink-0" style={{ color: '#D97706' }} />
+                )}
+                <span className="truncate">{getDisplayName(data)}</span>
+                {isDeceased && (
+                  <span className="text-[10px] font-normal shrink-0" style={{ color: '#94A3B8' }}>(故)</span>
+                )}
               </div>
             )}
 
@@ -191,21 +162,39 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
             {settings.showBirthDate && birthDisplay && (
               <div className="text-[10px]" style={{ color: subTextColor }}>
                 {birthDisplay}
-                {birthWareki && <span style={{ color: '#94A3B8' }}>（{birthWareki}）</span>}
+                {birthWareki && <span style={{ color: '#94A3B8' }}>({birthWareki})</span>}
               </div>
             )}
 
             {/* 3行目: 没年月日（故人のみ） */}
             {settings.showBirthDate && deathDisplay && (
               <div className="text-[10px]" style={{ color: '#94A3B8' }}>
-                〜 {deathDisplay}
+                ~ {deathDisplay}
               </div>
             )}
 
-            {/* 4行目: 続柄 */}
-            {settings.showRelationship && relLabel && (
-              <div className="text-xs mt-0.5" style={{ color: subTextColor }}>
-                {relLabel}
+            {/* 4行目: 続柄 + 同居・親等インジケータ */}
+            {(settings.showRelationship || hasLiving || hasKinship) && (
+              <div className="flex items-center justify-between mt-0.5">
+                {settings.showRelationship && relLabel ? (
+                  <span className="text-xs" style={{ color: subTextColor }}>{relLabel}</span>
+                ) : <span />}
+                <div className="flex items-center gap-1">
+                  {hasLiving && (
+                    <span className="flex items-center gap-px" style={{ color: '#059669', fontSize: 9 }}>
+                      <Home className="w-2.5 h-2.5" />
+                      <span>{data.livingGroup}</span>
+                    </span>
+                  )}
+                  {hasKinship && (
+                    <span
+                      className="text-[9px] font-bold px-1 rounded"
+                      style={{ backgroundColor: '#EEF2FF', color: '#4F46E5' }}
+                    >
+                      {data.kinshipDegree === 0 && data.kinshipViaSpouse ? '配' : `${data.kinshipDegree}親等`}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -233,25 +222,25 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
               <div className="font-bold mb-2 flex items-center gap-2">
                 {data.isRepresentative && <Crown className="w-4 h-4 text-yellow-400" />}
                 {getDisplayName(data)}
-                {isDeceased && <span className="text-gray-400">（故）</span>}
+                {isDeceased && <span className="text-gray-400">(故)</span>}
               </div>
               <div className="space-y-1" style={{ color: '#CBD5E1' }}>
                 <div>性別: {data.gender === 'male' ? '男性' : data.gender === 'female' ? '女性' : 'その他'}</div>
                 <div>続柄: {relLabel}</div>
                 <div>状態: {data.lifeStatus === 'alive' ? '生存' : data.lifeStatus === 'deceased' ? '死去' : '不明'}</div>
                 {data.birthDate && (
-                  <div>生年月日: {formatDateShort(data.birthDate)}{birthWareki && `（${birthWareki}）`}</div>
+                  <div>生年月日: {formatDateShort(data.birthDate)}{birthWareki && `(${birthWareki})`}</div>
                 )}
                 {data.deathDate && (
                   <div>没年月日: {formatDateShort(data.deathDate)}</div>
                 )}
-                {data.kinshipDegree !== undefined && !data.isRepresentative && (
+                {hasKinship && (
                   <div>親等: {data.kinshipDegree === 0 && data.kinshipViaSpouse ? '配偶者' : `${data.kinshipDegree}親等`}</div>
                 )}
                 {data.medicalHistory && (
                   <div style={{ color: '#FCA5A5' }}>既往歴: {data.medicalHistory}</div>
                 )}
-                {data.livingTogether && data.livingGroup && (
+                {hasLiving && (
                   <div>同居グループ: {data.livingGroup}</div>
                 )}
                 {data.address && <div>住所: {data.address}</div>}
