@@ -244,7 +244,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
  */
 export const JunctionNode: React.FC<NodeProps> = () => {
   return (
-    <div style={{ width: 150, height: 2, opacity: 0, pointerEvents: 'none' }}>
+    <div style={{ width: 160, height: 2, opacity: 0, pointerEvents: 'none' }}>
       <Handle type="source" position={Position.Bottom} className="opacity-0" />
     </div>
   );

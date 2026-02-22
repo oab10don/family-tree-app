@@ -280,6 +280,25 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     }
   }
 
+  // --- まず世代内の重なり防止（子の中央配置より先に実行） ---
+  const genGroups = new Map<number, string[]>();
+  for (const p of sorted) {
+    const gen = generationOf.get(p.id) ?? 0;
+    if (!genGroups.has(gen)) genGroups.set(gen, []);
+    genGroups.get(gen)!.push(p.id);
+  }
+  for (const [, ids] of genGroups) {
+    ids.sort((a, b) => (positions.get(a)?.x ?? 0) - (positions.get(b)?.x ?? 0));
+    for (let i = 1; i < ids.length; i++) {
+      const prev = positions.get(ids[i - 1]); const curr = positions.get(ids[i]);
+      if (prev && curr) {
+        const minX = prev.x + NODE_WIDTH + 40;
+        if (curr.x < minX) positions.set(ids[i], { x: minX, y: curr.y });
+      }
+    }
+  }
+
+  // --- 最後に子ノードを「両親の中間の真下」に配置（最終補正・上書き） ---
   const parentPairChildren = new Map<string, string[]>();
   for (const p of sorted) {
     if (p.parentIds && p.parentIds.length > 0) {
@@ -300,23 +319,6 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
       if (pos) positions.set(childIds[i], { x: startX + i * CHILD_GAP, y: pos.y });
     }
   }
-
-  const genGroups = new Map<number, string[]>();
-  for (const p of sorted) {
-    const gen = generationOf.get(p.id) ?? 0;
-    if (!genGroups.has(gen)) genGroups.set(gen, []);
-    genGroups.get(gen)!.push(p.id);
-  }
-  for (const [, ids] of genGroups) {
-    ids.sort((a, b) => (positions.get(a)?.x ?? 0) - (positions.get(b)?.x ?? 0));
-    for (let i = 1; i < ids.length; i++) {
-      const prev = positions.get(ids[i - 1]); const curr = positions.get(ids[i]);
-      if (prev && curr) {
-        const minX = prev.x + NODE_WIDTH + 40;
-        if (curr.x < minX) positions.set(ids[i], { x: minX, y: curr.y });
-      }
-    }
-  }
   return positions;
 };
 
@@ -335,7 +337,9 @@ const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, 
         const pos1 = positions.get(parentIds[0]); const pos2 = positions.get(parentIds[1]);
         if (pos1 && pos2) {
           const jId = `junction-${pairKey}`;
-          junctionNodes.push({ id: jId, type: 'junction', position: { x: (pos1.x + pos2.x) / 2, y: Math.max(pos1.y, pos2.y) + 50 }, data: { label: '' }, selectable: false, draggable: false });
+          // ジャンクションの中心ハンドルを両親の中間点に合わせる
+          const parentMidX = (pos1.x + pos2.x) / 2 + NODE_WIDTH / 2 - NODE_WIDTH / 2;
+          junctionNodes.push({ id: jId, type: 'junction', position: { x: parentMidX, y: Math.max(pos1.y, pos2.y) + 50 }, data: { label: '' }, selectable: false, draggable: false });
           spouseJunctions.set(pairKey, jId);
         }
       }
