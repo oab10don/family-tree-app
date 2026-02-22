@@ -67,7 +67,10 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
 
   return (
     <>
+      {/* 上：親からの接続用 */}
       <Handle type="target" position={Position.Top} className="opacity-0" />
+      {/* 左：配偶者接続用 */}
+      <Handle type="source" position={Position.Left} id="left-source" className="opacity-0" />
       <Handle type="target" position={Position.Left} id="left-target" className="opacity-0" />
 
       <div
@@ -256,8 +259,11 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
         )}
       </div>
 
+      {/* 下：子への接続用 */}
       <Handle type="source" position={Position.Bottom} className="opacity-0" />
+      {/* 右：配偶者接続用 */}
       <Handle type="source" position={Position.Right} id="right-source" className="opacity-0" />
+      <Handle type="target" position={Position.Right} id="right-target" className="opacity-0" />
     </>
   );
 };

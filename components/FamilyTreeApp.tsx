@@ -240,16 +240,20 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     }
   }
 
-  // --- 配偶者のX位置を中央揃え（Yは世代正規化済み） ---
+  // --- 配偶者のX位置を中央揃え（男性=左、女性=右） ---
   const adjustedSpouse = new Set<string>();
   for (const p of sorted) {
     if (p.spouseId && personMap.has(p.spouseId) && !adjustedSpouse.has(p.id) && !adjustedSpouse.has(p.spouseId)) {
+      const spouse = personMap.get(p.spouseId)!;
       const pos1 = positions.get(p.id); const pos2 = positions.get(p.spouseId);
       if (pos1 && pos2) {
         const centerX = (pos1.x + pos2.x) / 2;
         const y = pos1.y; // 同世代なので同じY
-        positions.set(p.id, { x: centerX - 90, y });
-        positions.set(p.spouseId, { x: centerX + 90, y });
+        // 男性=左、女性=右のルールで配置
+        const maleId = p.gender === 'male' ? p.id : p.spouseId;
+        const femaleId = p.gender === 'male' ? p.spouseId : p.id;
+        positions.set(maleId, { x: centerX - 90, y });
+        positions.set(femaleId, { x: centerX + 90, y });
         adjustedSpouse.add(p.id); adjustedSpouse.add(p.spouseId);
       }
     }
@@ -320,8 +324,22 @@ const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, 
   }
   for (const edge of relEdges) {
     if (edge.type === 'spouse') {
-      edges.push({ id: `${edge.id}-bg`, source: edge.source, target: edge.target, type: 'straight', sourceHandle: 'right-source', targetHandle: 'left-target', style: { stroke: '#2563EB', strokeWidth: 5 }, zIndex: 0 });
-      edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'straight', sourceHandle: 'right-source', targetHandle: 'left-target', style: { stroke: '#F8FAFC', strokeWidth: 2 }, zIndex: 1 });
+      // ノードの実際の位置関係に基づいてハンドルを動的に決定
+      const posA = positions.get(edge.source);
+      const posB = positions.get(edge.target);
+      let sourceHandle: string;
+      let targetHandle: string;
+      if (posA && posB && posA.x < posB.x) {
+        // source が左にある → source の right → target の left
+        sourceHandle = 'right-source';
+        targetHandle = 'left-target';
+      } else {
+        // source が右にある → source の left → target の right
+        sourceHandle = 'left-source';
+        targetHandle = 'right-target';
+      }
+      edges.push({ id: `${edge.id}-bg`, source: edge.source, target: edge.target, type: 'straight', sourceHandle, targetHandle, style: { stroke: '#2563EB', strokeWidth: 5 }, zIndex: 0 });
+      edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'straight', sourceHandle, targetHandle, style: { stroke: '#F8FAFC', strokeWidth: 2 }, zIndex: 1 });
       continue;
     }
     if (twoParentChildren.has(edge.target)) continue;
