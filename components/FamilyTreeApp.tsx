@@ -346,7 +346,7 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     }
   }
 
-  // --- 最後に子ノードを「両親の中間の真下」に配置（最終補正・上書き） ---
+  // --- 子ノードを「両親の中間の真下」に配置 ---
   const parentPairChildren = new Map<string, string[]>();
   for (const p of sorted) {
     if (p.parentIds && p.parentIds.length > 0) {
@@ -359,14 +359,56 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     const parentIdsList = parentKey.split(',');
     const parentXs = parentIdsList.map(id => positions.get(id)?.x ?? 0);
     const parentCenter = parentXs.reduce((a, b) => a + b, 0) / parentXs.length + NODE_WIDTH / 2;
-    const CHILD_GAP = 190;
-    const totalWidth = (childIds.length - 1) * CHILD_GAP;
-    const startX = parentCenter - totalWidth / 2 - NODE_WIDTH / 2;
+
+    // 各子のスロット幅を計算（配偶者がいる子は2ノード分の幅が必要）
+    const SLOT_GAP = 40;
+    const slotWidths = childIds.map(cid => {
+      const child = personMap.get(cid);
+      return (child?.spouseId && personMap.has(child.spouseId))
+        ? NODE_WIDTH * 2 + 20   // 夫婦ペア幅
+        : NODE_WIDTH;
+    });
+    const totalWidth = slotWidths.reduce((a, b) => a + b, 0) + (childIds.length - 1) * SLOT_GAP;
+    let currentX = parentCenter - totalWidth / 2;
+
     for (let i = 0; i < childIds.length; i++) {
       const pos = positions.get(childIds[i]);
-      if (pos) positions.set(childIds[i], { x: startX + i * CHILD_GAP, y: pos.y });
+      if (!pos) { currentX += slotWidths[i] + SLOT_GAP; continue; }
+      const child = personMap.get(childIds[i]);
+
+      if (child?.spouseId && personMap.has(child.spouseId)) {
+        // 夫婦ペア: スロットの中央にペアを配置
+        const pairCenterX = currentX + slotWidths[i] / 2;
+        const maleId = child.gender === 'male' ? child.id : child.spouseId;
+        const femaleId = child.gender === 'male' ? child.spouseId : child.id;
+        positions.set(maleId, { x: pairCenterX - NODE_WIDTH - 10, y: pos.y });
+        positions.set(femaleId, { x: pairCenterX + 10, y: pos.y });
+      } else {
+        // 単独: スロットの中央に配置
+        positions.set(childIds[i], { x: currentX + (slotWidths[i] - NODE_WIDTH) / 2, y: pos.y });
+      }
+      currentX += slotWidths[i] + SLOT_GAP;
     }
   }
+
+  // --- 最終重なり防止（子の配置・配偶者再配置後に再実行） ---
+  const genGroupsFinal = new Map<number, string[]>();
+  for (const p of sorted) {
+    const gen = generationOf.get(p.id) ?? 0;
+    if (!genGroupsFinal.has(gen)) genGroupsFinal.set(gen, []);
+    genGroupsFinal.get(gen)!.push(p.id);
+  }
+  for (const [, ids] of genGroupsFinal) {
+    ids.sort((a, b) => (positions.get(a)?.x ?? 0) - (positions.get(b)?.x ?? 0));
+    for (let i = 1; i < ids.length; i++) {
+      const prev = positions.get(ids[i - 1]); const curr = positions.get(ids[i]);
+      if (prev && curr) {
+        const minX = prev.x + NODE_WIDTH + 40;
+        if (curr.x < minX) positions.set(ids[i], { x: minX, y: curr.y });
+      }
+    }
+  }
+
   return positions;
 };
 
