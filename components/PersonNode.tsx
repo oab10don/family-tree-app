@@ -120,10 +120,10 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
             <div className="absolute -bottom-9 left-1/2 -translate-x-1/2 flex gap-1 z-50">
               <button
                 onClick={handleEdit}
-                className="flex items-center gap-0.5 bg-gray-600 hover:bg-gray-700 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-md transition-all"
+                className="flex items-center gap-0.5 bg-gray-600 hover:bg-gray-700 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-md transition-all whitespace-nowrap"
                 title="編集"
               >
-                <Pencil className="w-2.5 h-2.5" />編集
+                <Pencil className="w-2.5 h-2.5 shrink-0" />編集
               </button>
               <button
                 onClick={(e) => handleAddRelation(e, 'child')}
