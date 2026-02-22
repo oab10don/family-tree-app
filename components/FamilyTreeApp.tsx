@@ -68,7 +68,7 @@ const nodeTypes: NodeTypes = {
 /** 家系図専用カスタム親子エッジ（L字型、角丸） */
 const FamilyEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, targetY, style }) => {
   let pathD: string;
-  if (Math.abs(sourceX - targetX) < 2) {
+  if (Math.abs(sourceX - targetX) < 15) {
     // 真上から真下へ → 直線
     pathD = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
   } else {
@@ -92,12 +92,12 @@ const FamilyEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, target
 
 const edgeTypes: EdgeTypes = { familyEdge: FamilyEdge };
 
-/** 同居グループの背景色 */
+/** 同居グループの背景色（薄め: 枠線で十分に識別できるため） */
 const LIVING_GROUP_BG_COLORS: Record<number, string> = {
-  1: 'rgba(34,197,94,0.08)', 2: 'rgba(249,115,22,0.08)', 3: 'rgba(168,85,247,0.08)',
-  4: 'rgba(20,184,166,0.08)', 5: 'rgba(244,63,94,0.08)', 6: 'rgba(6,182,212,0.08)',
-  7: 'rgba(245,158,11,0.08)', 8: 'rgba(99,102,241,0.08)', 9: 'rgba(132,204,22,0.08)',
-  10: 'rgba(217,70,239,0.08)',
+  1: 'rgba(34,197,94,0.03)', 2: 'rgba(249,115,22,0.03)', 3: 'rgba(168,85,247,0.03)',
+  4: 'rgba(20,184,166,0.03)', 5: 'rgba(244,63,94,0.03)', 6: 'rgba(6,182,212,0.03)',
+  7: 'rgba(245,158,11,0.03)', 8: 'rgba(99,102,241,0.03)', 9: 'rgba(132,204,22,0.03)',
+  10: 'rgba(217,70,239,0.03)',
 };
 const LIVING_GROUP_BORDER_COLORS: Record<number, string> = {
   1: 'rgba(34,197,94,0.4)', 2: 'rgba(249,115,22,0.4)', 3: 'rgba(168,85,247,0.4)',
