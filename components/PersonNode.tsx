@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { PersonNodeData, getDisplayName, relationshipLabels, DisplaySettings } from '@/types/familyTree';
-import { Crown, Home, Plus } from 'lucide-react';
+import { Crown, Home, Plus, Pencil } from 'lucide-react';
 import { formatDateShort, toWarekiShort } from '@/lib/wareki';
 
 /** +ボタンで追加する関係の種類 */
@@ -13,6 +13,7 @@ interface PersonNodeProps extends NodeProps {
     kinshipDegree?: number;
     kinshipViaSpouse?: boolean;
     onAddRelation?: (personId: string, relationType: AddRelationType) => void;
+    onEdit?: (personId: string) => void;
   };
 }
 
@@ -51,6 +52,11 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
     data.onAddRelation?.(data.id, type);
   }, [data]);
 
+  const handleEdit = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    data.onEdit?.(data.id);
+  }, [data]);
+
   const hasSpouse = !!data.spouseId;
 
   // 日付表示
@@ -62,6 +68,9 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
   const hasLiving = data.livingTogether && data.livingGroup;
   const hasKinship = data.kinshipDegree !== undefined && !data.isRepresentative;
 
+  // 名前フォールバック（修正C）
+  const displayName = getDisplayName(data) || '（名前未入力）';
+
   return (
     <>
       {/* 上：親からの接続用 */}
@@ -71,9 +80,10 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
       <Handle type="target" position={Position.Left} id="left-target" className="opacity-0" />
 
       <div className="relative">
-        {/* +ボタン群：選択時のみ表示（ホバー不要） */}
+        {/* アクションボタン群：選択時のみ表示（修正D: スマホ対応） */}
         {selected && (
           <>
+            {/* 上：+父 +母 */}
             <div className="absolute -top-9 left-1/2 -translate-x-1/2 flex gap-1 z-50">
               {(!data.parentIds || data.parentIds.length < 2) && (
                 <>
@@ -95,6 +105,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
               )}
             </div>
 
+            {/* 右：+配偶者（未婚の場合のみ） */}
             {!hasSpouse && (
               <button
                 onClick={(e) => handleAddRelation(e, 'spouse')}
@@ -105,13 +116,23 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
               </button>
             )}
 
-            <button
-              onClick={(e) => handleAddRelation(e, 'child')}
-              className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-green-500 hover:bg-green-600 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-md z-50 transition-all"
-              title="子を追加"
-            >
-              <Plus className="w-2.5 h-2.5" />子
-            </button>
+            {/* 下：編集 + 子追加 */}
+            <div className="absolute -bottom-9 left-1/2 -translate-x-1/2 flex gap-1 z-50">
+              <button
+                onClick={handleEdit}
+                className="flex items-center gap-0.5 bg-gray-600 hover:bg-gray-700 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-md transition-all"
+                title="編集"
+              >
+                <Pencil className="w-2.5 h-2.5" />編集
+              </button>
+              <button
+                onClick={(e) => handleAddRelation(e, 'child')}
+                className="flex items-center gap-0.5 bg-green-500 hover:bg-green-600 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-md transition-all"
+                title="子を追加"
+              >
+                <Plus className="w-2.5 h-2.5" />子
+              </button>
+            </div>
           </>
         )}
 
@@ -143,11 +164,11 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
           <div className="relative px-3 py-2">
             {/* 1行目: 代表者クラウン + 名前 + 故人表示 */}
             {settings.showName && (
-              <div className="text-sm font-bold flex items-center gap-1" style={{ color: textColor }}>
+              <div className="text-sm font-bold flex items-center gap-1" style={{ color: data.name ? textColor : '#94A3B8' }}>
                 {data.isRepresentative && (
                   <Crown className="w-3.5 h-3.5 shrink-0" style={{ color: '#D97706' }} />
                 )}
-                <span className="truncate">{getDisplayName(data)}</span>
+                <span className="truncate">{displayName}</span>
                 {isDeceased && (
                   <span className="text-[10px] font-normal shrink-0" style={{ color: '#94A3B8' }}>(故)</span>
                 )}

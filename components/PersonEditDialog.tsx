@@ -384,7 +384,7 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
           </div>
 
           <div className="flex gap-2 pt-4">
-            <Button type="submit" className="flex-1 text-white" style={{ backgroundColor: '#2563EB' }}>保存</Button>
+            <Button type="submit" className={`flex-1 text-white ${!formData.name.trim() ? 'opacity-50 cursor-not-allowed' : ''}`} style={{ backgroundColor: '#2563EB' }} disabled={!formData.name.trim()}>保存</Button>
             <Button type="button" variant="outline" onClick={onClose} className="flex-1" style={{ borderColor: '#E2E8F0', color: '#475569' }}>キャンセル</Button>
           </div>
 

@@ -84,7 +84,28 @@ const FamilyEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, target
   );
 };
 
-const edgeTypes: EdgeTypes = { familyEdge: FamilyEdge };
+/** 配偶者カスタムエッジ（水平の二重線） */
+const SpouseEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, targetY }) => {
+  const midY = (sourceY + targetY) / 2;
+  const gap = 2;
+  return (
+    <>
+      <path
+        id={id}
+        d={`M ${sourceX} ${midY} L ${targetX} ${midY}`}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={12}
+        className="react-flow__edge-path"
+        style={{ pointerEvents: 'stroke' }}
+      />
+      <path d={`M ${sourceX} ${midY - gap} L ${targetX} ${midY - gap}`} fill="none" stroke="#2563EB" strokeWidth={2} />
+      <path d={`M ${sourceX} ${midY + gap} L ${targetX} ${midY + gap}`} fill="none" stroke="#2563EB" strokeWidth={2} />
+    </>
+  );
+};
+
+const edgeTypes: EdgeTypes = { familyEdge: FamilyEdge, spouseEdge: SpouseEdge };
 
 /** 同居グループの背景色（薄め: 枠線で十分に識別できるため） */
 const LIVING_GROUP_BG_COLORS: Record<number, string> = {
@@ -324,22 +345,19 @@ const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, 
   }
   for (const edge of relEdges) {
     if (edge.type === 'spouse') {
-      // ノードの実際の位置関係に基づいてハンドルを動的に決定
+      // ノードの実際の位置関係に基づいてハンドルを動的に決定（修正A-3+E）
       const posA = positions.get(edge.source);
       const posB = positions.get(edge.target);
       let sourceHandle: string;
       let targetHandle: string;
       if (posA && posB && posA.x < posB.x) {
-        // source が左にある → source の right → target の left
         sourceHandle = 'right-source';
         targetHandle = 'left-target';
       } else {
-        // source が右にある → source の left → target の right
         sourceHandle = 'left-source';
         targetHandle = 'right-target';
       }
-      edges.push({ id: `${edge.id}-bg`, source: edge.source, target: edge.target, type: 'straight', sourceHandle, targetHandle, style: { stroke: '#2563EB', strokeWidth: 5 }, zIndex: 0 });
-      edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'straight', sourceHandle, targetHandle, style: { stroke: '#F8FAFC', strokeWidth: 2 }, zIndex: 1 });
+      edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'spouseEdge', sourceHandle, targetHandle, zIndex: 1 });
       continue;
     }
     if (twoParentChildren.has(edge.target)) continue;
@@ -465,6 +483,15 @@ const FamilyTreeAppInner: React.FC = () => {
     setSearchDropdownOpen(false);
   }, [nodes, setCenter, getZoom]);
 
+  /** ノード選択時の「編集」ボタンから呼ばれるコールバック（修正D: スマホ対応） */
+  const handleEditPerson = useCallback((personId: string) => {
+    const person = personsRef.current.find(p => p.id === personId);
+    if (person) {
+      setSelectedPerson(person);
+      setIsDialogOpen(true);
+    }
+  }, []);
+
   const handleAddRelation = useCallback((personId: string, relationType: AddRelationType) => {
     const currentPerson = personsRef.current.find(p => p.id === personId);
     if (!currentPerson) return;
@@ -509,13 +536,13 @@ const FamilyTreeAppInner: React.FC = () => {
         id: person.id,
         type: 'person',
         position: positions.get(person.id) || { x: 0, y: 0 },
-        data: { ...person, label: person.name, settings: ds, kinshipDegree: kinship?.degree, kinshipViaSpouse: kinship?.viaSpouse, onAddRelation: handleAddRelation },
+        data: { ...person, label: person.name, settings: ds, kinshipDegree: kinship?.degree, kinshipViaSpouse: kinship?.viaSpouse, onAddRelation: handleAddRelation, onEdit: handleEditPerson },
         selected: isHighlighted,
       };
     });
     setNodes([...livingGroupNodes, ...personNodes, ...junctionNodes]);
     setEdges(flowEdges);
-  }, [setNodes, setEdges, handleAddRelation]);
+  }, [setNodes, setEdges, handleAddRelation, handleEditPerson]);
 
   const pushHistory = useCallback((persons: PersonData[]) => {
     setPersonHistory(prev => { const h = prev.slice(0, historyIndex + 1); h.push(JSON.parse(JSON.stringify(persons))); if (h.length > 50) h.shift(); return h; });
@@ -622,7 +649,7 @@ const FamilyTreeAppInner: React.FC = () => {
 
   const onNodeDoubleClick = useCallback((_e: React.MouseEvent, node: Node) => {
     if (node.type !== 'person') return;
-    const { settings: _, label: __, onAddRelation: ___, ...personData } = node.data;
+    const { settings: _, label: __, onAddRelation: ___, onEdit: ____, ...personData } = node.data;
     setSelectedPerson(personData as PersonData); setIsDialogOpen(true);
   }, []);
 
