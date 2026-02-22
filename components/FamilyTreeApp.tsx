@@ -615,7 +615,12 @@ const FamilyTreeAppInner: React.FC = () => {
     setSelectedPerson(np); setIsDialogOpen(true);
   }, [updatePersons]);
 
-  const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
+  /** シングルクリック → 選択のみ（ボタン表示）。ダブルクリック → 編集ダイアログ */
+  const onNodeClick = useCallback((_e: React.MouseEvent, _node: Node) => {
+    // React Flow がデフォルトで selected を切り替えるので、追加処理は不要
+  }, []);
+
+  const onNodeDoubleClick = useCallback((_e: React.MouseEvent, node: Node) => {
     if (node.type !== 'person') return;
     const { settings: _, label: __, onAddRelation: ___, ...personData } = node.data;
     setSelectedPerson(personData as PersonData); setIsDialogOpen(true);
@@ -965,6 +970,7 @@ const FamilyTreeAppInner: React.FC = () => {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeClick={onNodeClick}
+              onNodeDoubleClick={onNodeDoubleClick}
               onInit={setReactFlowInstance}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}

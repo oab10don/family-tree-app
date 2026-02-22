@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { PersonNodeData, getDisplayName, relationshipLabels, DisplaySettings } from '@/types/familyTree';
 import { Crown, Home, Plus } from 'lucide-react';
@@ -31,8 +31,6 @@ const GENDER_BG_COLORS = {
 } as const;
 
 export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const [showActions, setShowActions] = useState(false);
   const settings = data.settings;
   const isDeceased = data.lifeStatus === 'deceased';
 
@@ -51,7 +49,6 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
   const handleAddRelation = useCallback((e: React.MouseEvent, type: AddRelationType) => {
     e.stopPropagation();
     data.onAddRelation?.(data.id, type);
-    setShowActions(false);
   }, [data]);
 
   const hasSpouse = !!data.spouseId;
@@ -73,15 +70,11 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
       <Handle type="source" position={Position.Left} id="left-source" className="opacity-0" />
       <Handle type="target" position={Position.Left} id="left-target" className="opacity-0" />
 
-      <div
-        className="relative group"
-        onMouseEnter={() => { setShowTooltip(true); setShowActions(true); }}
-        onMouseLeave={() => { setShowTooltip(false); setShowActions(false); }}
-      >
-        {/* +ボタン群（ホバー時のみ表示） */}
-        {showActions && (
+      <div className="relative">
+        {/* +ボタン群：選択時のみ表示（ホバー不要） */}
+        {selected && (
           <>
-            <div className="absolute -top-9 left-1/2 -translate-x-1/2 flex gap-1 z-20">
+            <div className="absolute -top-9 left-1/2 -translate-x-1/2 flex gap-1 z-50">
               {(!data.parentIds || data.parentIds.length < 2) && (
                 <>
                   <button
@@ -105,7 +98,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
             {!hasSpouse && (
               <button
                 onClick={(e) => handleAddRelation(e, 'spouse')}
-                className="absolute -right-16 top-1/2 -translate-y-1/2 flex items-center gap-0.5 bg-purple-500 hover:bg-purple-600 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-md z-20 transition-all"
+                className="absolute -right-16 top-1/2 -translate-y-1/2 flex items-center gap-0.5 bg-purple-500 hover:bg-purple-600 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-md z-50 transition-all"
                 title="配偶者を追加"
               >
                 <Plus className="w-2.5 h-2.5" />配偶者
@@ -114,7 +107,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
 
             <button
               onClick={(e) => handleAddRelation(e, 'child')}
-              className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-green-500 hover:bg-green-600 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-md z-20 transition-all"
+              className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-green-500 hover:bg-green-600 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-md z-50 transition-all"
               title="子を追加"
             >
               <Plus className="w-2.5 h-2.5" />子
@@ -148,7 +141,7 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
           )}
 
           <div className="relative px-3 py-2">
-            {/* 1行目: 代表者クラウン + 性別アイコン + 名前 + 故人表示 */}
+            {/* 1行目: 代表者クラウン + 名前 + 故人表示 */}
             {settings.showName && (
               <div className="text-sm font-bold flex items-center gap-1" style={{ color: textColor }}>
                 {data.isRepresentative && (
@@ -214,49 +207,6 @@ export const PersonNode: React.FC<PersonNodeProps> = ({ data, selected }) => {
             )}
           </div>
         </div>
-
-        {/* ツールチップ */}
-        {showTooltip && (
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 pointer-events-none">
-            <div
-              className="text-xs rounded-lg p-3 shadow-lg min-w-[220px] max-w-[320px]"
-              style={{ backgroundColor: '#1E293B', color: '#fff' }}
-            >
-              <div className="font-bold mb-2 flex items-center gap-2">
-                {data.isRepresentative && <Crown className="w-4 h-4 text-yellow-400" />}
-                {getDisplayName(data)}
-                {isDeceased && <span className="text-gray-400">(故)</span>}
-              </div>
-              <div className="space-y-1" style={{ color: '#CBD5E1' }}>
-                <div>性別: {data.gender === 'male' ? '男性' : data.gender === 'female' ? '女性' : 'その他'}</div>
-                <div>続柄: {relLabel}</div>
-                <div>状態: {data.lifeStatus === 'alive' ? '生存' : data.lifeStatus === 'deceased' ? '死去' : '不明'}</div>
-                {data.birthDate && (
-                  <div>生年月日: {formatDateShort(data.birthDate)}{birthWareki && `(${birthWareki})`}</div>
-                )}
-                {data.deathDate && (
-                  <div>没年月日: {formatDateShort(data.deathDate)}</div>
-                )}
-                {hasKinship && (
-                  <div>親等: {data.kinshipDegree === 0 && data.kinshipViaSpouse ? '配偶者' : `${data.kinshipDegree}親等`}</div>
-                )}
-                {data.medicalHistory && (
-                  <div style={{ color: '#FCA5A5' }}>既往歴: {data.medicalHistory}</div>
-                )}
-                {hasLiving && (
-                  <div>同居グループ: {data.livingGroup}</div>
-                )}
-                {data.address && <div>住所: {data.address}</div>}
-                {data.phone && <div>電話: {data.phone}</div>}
-                {data.notes && (
-                  <div className="pt-1 mt-1" style={{ borderTop: '1px solid #475569' }}>
-                    メモ: {data.notes.length > 50 ? data.notes.substring(0, 50) + '...' : data.notes}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* 下：子への接続用 */}
