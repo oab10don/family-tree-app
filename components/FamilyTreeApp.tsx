@@ -409,6 +409,22 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     }
   }
 
+  // --- 子が1人だけの親ペアは、重なり防止後に再度中央配置を強制 ---
+  for (const [parentKey, childIds] of parentPairChildren) {
+    if (childIds.length !== 1) continue;
+    const childId = childIds[0];
+    const child = personMap.get(childId);
+    // 配偶者付きの子はスキップ（ペアで中央に配置済み）
+    if (child?.spouseId && personMap.has(child.spouseId)) continue;
+    const parentIdsList = parentKey.split(',');
+    const parentXs = parentIdsList.map(id => positions.get(id)?.x ?? 0);
+    const parentCenter = parentXs.reduce((a, b) => a + b, 0) / parentXs.length + NODE_WIDTH / 2;
+    const pos = positions.get(childId);
+    if (pos) {
+      positions.set(childId, { x: parentCenter - NODE_WIDTH / 2, y: pos.y });
+    }
+  }
+
   return positions;
 };
 
@@ -638,6 +654,7 @@ const FamilyTreeAppInner: React.FC = () => {
         updatePersonsInternal([...ws, newPerson]); setSelectedPerson(newPerson); setIsDialogOpen(true); return;
       case 'child':
         newPerson = { id: newId, name: '', gender: 'male', lifeStatus: 'alive', relationship: 'other', isRepresentative: false, parentIds: currentPerson.spouseId ? [personId, currentPerson.spouseId] : [personId] };
+        // 子追加時に配偶者ペアの中央真下に配置（calculateLayout で再計算されるが初期位置として設定）
         updatePersonsInternal([...personsRef.current, newPerson]); setSelectedPerson(newPerson); setIsDialogOpen(true); return;
     }
   }, []);
