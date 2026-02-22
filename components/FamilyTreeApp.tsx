@@ -212,15 +212,50 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
     if (n) positions.set(p.id, { x: n.x - NODE_WIDTH / 2, y: n.y - NODE_HEIGHT / 2 });
   }
 
+  // --- 世代ごとにY位置を正規化 ---
+  // dagre は配偶者関係を知らないため、配偶者を誤ったランクに配置する。
+  // BFS で計算した generationOf を使い、同世代のノードを同じ Y に揃える。
+  const genYMap = new Map<number, number>();
+  for (const p of sorted) {
+    const gen = generationOf.get(p.id) ?? 0;
+    const pos = positions.get(p.id);
+    if (pos) {
+      if (!genYMap.has(gen)) {
+        genYMap.set(gen, pos.y);
+      } else {
+        genYMap.set(gen, Math.min(genYMap.get(gen)!, pos.y));
+      }
+    }
+  }
+  // 世代間の最小間隔を確保（NODE_HEIGHT + 80px）
+  const sortedGens = [...genYMap.entries()].sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < sortedGens.length; i++) {
+    const prevY = sortedGens[i - 1][1];
+    const minY = prevY + NODE_HEIGHT + 80;
+    if (sortedGens[i][1] < minY) {
+      sortedGens[i][1] = minY;
+      genYMap.set(sortedGens[i][0], minY);
+    }
+  }
+  for (const p of sorted) {
+    const gen = generationOf.get(p.id) ?? 0;
+    const pos = positions.get(p.id);
+    const genY = genYMap.get(gen);
+    if (pos && genY !== undefined) {
+      positions.set(p.id, { x: pos.x, y: genY });
+    }
+  }
+
+  // --- 配偶者のX位置を中央揃え（Yは世代正規化済み） ---
   const adjustedSpouse = new Set<string>();
   for (const p of sorted) {
     if (p.spouseId && personMap.has(p.spouseId) && !adjustedSpouse.has(p.id) && !adjustedSpouse.has(p.spouseId)) {
       const pos1 = positions.get(p.id); const pos2 = positions.get(p.spouseId);
       if (pos1 && pos2) {
-        const avgY = Math.min(pos1.y, pos2.y);
         const centerX = (pos1.x + pos2.x) / 2;
-        positions.set(p.id, { x: centerX - 90, y: avgY });
-        positions.set(p.spouseId, { x: centerX + 90, y: avgY });
+        const y = pos1.y; // 同世代なので同じY
+        positions.set(p.id, { x: centerX - 90, y });
+        positions.set(p.spouseId, { x: centerX + 90, y });
         adjustedSpouse.add(p.id); adjustedSpouse.add(p.spouseId);
       }
     }
