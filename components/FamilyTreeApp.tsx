@@ -37,6 +37,9 @@ import {
   X,
   Maximize,
   FileText,
+  FileSpreadsheet,
+  Heart,
+  AlertCircle,
 } from 'lucide-react';
 
 import { PersonNode, JunctionNode, AddRelationType } from './PersonNode';
@@ -55,6 +58,10 @@ import {
 } from '@/types/familyTree';
 import { formatDateShort, toWarekiShort } from '@/lib/wareki';
 import { exportToPdf } from '@/lib/pdfExport';
+import { downloadCsv } from '@/lib/csvExport';
+import { parseCsv, CsvImportResult } from '@/lib/csvImport';
+import { downloadFhir } from '@/lib/fhirExport';
+import { parseFhirBundle } from '@/lib/fhirImport';
 import { Input } from './ui/input';
 import { Switch } from './ui/switch';
 import { Checkbox } from './ui/checkbox';
@@ -459,8 +466,14 @@ const FamilyTreeAppInner: React.FC = () => {
     onConfirm: () => void;
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
+  // CSV/FHIRインポート state
+  const [csvImportPreview, setCsvImportPreview] = useState<CsvImportResult | null>(null);
+  const [showCsvImportDialog, setShowCsvImportDialog] = useState(false);
+
   const flowRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
+  const fhirFileInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [personHistory, setPersonHistory] = useState<PersonData[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -758,6 +771,86 @@ const FamilyTreeAppInner: React.FC = () => {
     });
   }, []);
 
+  // --- CSVエクスポート ---
+  const handleExportCsv = useCallback(() => {
+    downloadCsv(personsRef.current);
+    setShowSavePopover(false);
+  }, []);
+
+  // --- CSVインポート ---
+  const handleImportCsvClick = useCallback(() => {
+    csvFileInputRef.current?.click();
+    setShowSavePopover(false);
+  }, []);
+
+  const handleCsvFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const result = parseCsv(e.target?.result as string);
+          setCsvImportPreview(result);
+          setShowCsvImportDialog(true);
+        } catch {
+          alert('CSVファイルの読み込みに失敗しました');
+        }
+      };
+      reader.readAsText(file);
+    }
+    event.target.value = '';
+  }, []);
+
+  const handleCsvImportConfirm = useCallback(() => {
+    if (!csvImportPreview) return;
+    updatePersons(csvImportPreview.persons);
+    setShowCsvImportDialog(false);
+    setCsvImportPreview(null);
+  }, [csvImportPreview, updatePersons]);
+
+  // --- FHIRエクスポート ---
+  const handleExportFhir = useCallback(() => {
+    const representative = personsRef.current.find(p => p.isRepresentative);
+    if (!representative) {
+      alert('FHIR出力には代表者（本人）の設定が必要です。\n人物の編集画面から代表者を設定してください。');
+      return;
+    }
+    downloadFhir(personsRef.current, representative);
+    setShowSavePopover(false);
+  }, []);
+
+  // --- FHIRインポート ---
+  const handleImportFhirClick = useCallback(() => {
+    fhirFileInputRef.current?.click();
+    setShowSavePopover(false);
+  }, []);
+
+  const handleFhirFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const json = JSON.parse(e.target?.result as string);
+          const result = parseFhirBundle(json);
+          if (result.errors.length > 0) {
+            alert(`FHIR読み込み警告:\n${result.errors.join('\n')}`);
+          }
+          if (result.persons.length > 0) {
+            updatePersons(result.persons);
+            alert(`${result.persons.length}件のデータをインポートしました。\n\n※ FHIRデータには親子関係の情報が含まれないため、\n親子関係は手動で設定してください。`);
+          } else {
+            alert('インポートできるデータが見つかりませんでした。');
+          }
+        } catch {
+          alert('FHIRファイルの読み込みに失敗しました');
+        }
+      };
+      reader.readAsText(file);
+    }
+    event.target.value = '';
+  }, [updatePersons]);
+
   // --- 全消去（確認ダイアログ版） ---
   const handleReset = useCallback(() => {
     setShowSavePopover(false);
@@ -793,6 +886,8 @@ const FamilyTreeAppInner: React.FC = () => {
   return (
     <div className="h-screen w-full flex flex-col" style={{ backgroundColor: '#F8FAFC' }}>
       <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileChange} className="hidden" />
+      <input ref={csvFileInputRef} type="file" accept=".csv,.txt" onChange={handleCsvFileChange} className="hidden" />
+      <input ref={fhirFileInputRef} type="file" accept=".json" onChange={handleFhirFileChange} className="hidden" />
 
       {/* ヘッダーバー */}
       <header className="h-12 flex items-center px-4 gap-3 shrink-0" style={{ backgroundColor: '#fff', borderBottom: '1px solid #E2E8F0' }}>
@@ -932,23 +1027,39 @@ const FamilyTreeAppInner: React.FC = () => {
             <button onClick={() => setShowSavePopover(!showSavePopover)} className="p-2 rounded-md hover:bg-gray-100 transition-colors" title="保存・出力" style={{ color: '#475569' }}>
               <Save className="w-5 h-5" />
             </button>
-            <Popover isOpen={showSavePopover} onClose={() => setShowSavePopover(false)} className="left-full ml-2 top-0 w-52">
+            <Popover isOpen={showSavePopover} onClose={() => setShowSavePopover(false)} className="left-full ml-2 top-0 w-56">
               <div className="space-y-1">
+                <p className="text-[10px] font-bold px-2 pt-1" style={{ color: '#94A3B8' }}>データ保存</p>
                 <button onClick={handleExportJSON} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
                   <FileJson className="w-3.5 h-3.5" />JSONエクスポート
                 </button>
                 <button onClick={handleImportJSON} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
                   <Upload className="w-3.5 h-3.5" />JSONインポート
                 </button>
-                <button onClick={handleExportImage} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
-                  <Download className="w-3.5 h-3.5" />画像ダウンロード (PNG)
+                <div className="my-1" style={{ borderTop: '1px solid #E2E8F0' }} />
+                <p className="text-[10px] font-bold px-2 pt-1" style={{ color: '#94A3B8' }}>医療連携</p>
+                <button onClick={handleExportCsv} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <FileSpreadsheet className="w-3.5 h-3.5" />CSVエクスポート
+                </button>
+                <button onClick={handleImportCsvClick} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <Upload className="w-3.5 h-3.5" />CSVインポート
+                </button>
+                <button onClick={handleExportFhir} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <Heart className="w-3.5 h-3.5" />FHIRエクスポート
+                </button>
+                <button onClick={handleImportFhirClick} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <Upload className="w-3.5 h-3.5" />FHIRインポート
                 </button>
                 <div className="my-1" style={{ borderTop: '1px solid #E2E8F0' }} />
+                <p className="text-[10px] font-bold px-2 pt-1" style={{ color: '#94A3B8' }}>出力</p>
                 <button onClick={() => handleExportPdf('A4')} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
                   <FileText className="w-3.5 h-3.5" />PDF出力 (A4 横)
                 </button>
                 <button onClick={() => handleExportPdf('A3')} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
                   <FileText className="w-3.5 h-3.5" />PDF出力 (A3 横)
+                </button>
+                <button onClick={handleExportImage} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <Download className="w-3.5 h-3.5" />画像ダウンロード (PNG)
                 </button>
                 <div className="my-1" style={{ borderTop: '1px solid #E2E8F0' }} />
                 <button onClick={handleReset} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-red-50 flex items-center gap-2" style={{ color: '#DC2626' }}>
@@ -1106,6 +1217,90 @@ const FamilyTreeAppInner: React.FC = () => {
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
       />
+
+      {/* CSVインポートプレビューダイアログ */}
+      {showCsvImportDialog && csvImportPreview && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+          <div
+            className="rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-auto shadow-xl mx-4"
+            style={{ backgroundColor: '#fff', border: '1px solid #E2E8F0' }}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold" style={{ color: '#1E293B' }}>CSVインポート プレビュー</h3>
+              <button
+                onClick={() => { setShowCsvImportDialog(false); setCsvImportPreview(null); }}
+                style={{ color: '#94A3B8' }}
+                className="hover:opacity-70"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {csvImportPreview.errors.length > 0 && (
+              <div className="rounded-md p-3 mb-4" style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA' }}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <AlertCircle className="w-4 h-4" style={{ color: '#DC2626' }} />
+                  <span className="text-sm font-bold" style={{ color: '#DC2626' }}>エラー</span>
+                </div>
+                {csvImportPreview.errors.map((err, i) => (
+                  <p key={i} className="text-xs" style={{ color: '#DC2626' }}>{err}</p>
+                ))}
+              </div>
+            )}
+
+            <p className="text-sm mb-3" style={{ color: '#475569' }}>
+              {csvImportPreview.persons.length}件のデータを検出しました。
+            </p>
+
+            <div className="overflow-auto mb-4 rounded-md" style={{ border: '1px solid #E2E8F0', maxHeight: 320 }}>
+              <table className="min-w-full text-xs border-collapse">
+                <thead>
+                  <tr style={{ backgroundColor: '#F1F5F9' }}>
+                    <th className="px-3 py-2 text-left font-semibold sticky top-0" style={{ color: '#475569', backgroundColor: '#F1F5F9' }}>氏名</th>
+                    <th className="px-3 py-2 text-left font-semibold sticky top-0" style={{ color: '#475569', backgroundColor: '#F1F5F9' }}>性別</th>
+                    <th className="px-3 py-2 text-left font-semibold sticky top-0" style={{ color: '#475569', backgroundColor: '#F1F5F9' }}>生年月日</th>
+                    <th className="px-3 py-2 text-left font-semibold sticky top-0" style={{ color: '#475569', backgroundColor: '#F1F5F9' }}>続柄</th>
+                    <th className="px-3 py-2 text-left font-semibold sticky top-0" style={{ color: '#475569', backgroundColor: '#F1F5F9' }}>既往歴</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {csvImportPreview.persons.map((p, i) => (
+                    <tr key={i} className="border-t" style={{ borderColor: '#E2E8F0' }}>
+                      <td className="px-3 py-1.5 font-medium" style={{ color: '#1E293B' }}>{p.name}</td>
+                      <td className="px-3 py-1.5" style={{ color: '#64748B' }}>
+                        {p.gender === 'male' ? '男' : p.gender === 'female' ? '女' : '他'}
+                      </td>
+                      <td className="px-3 py-1.5" style={{ color: '#64748B' }}>{p.birthDate || '-'}</td>
+                      <td className="px-3 py-1.5" style={{ color: '#64748B' }}>
+                        {relationshipLabels[p.relationship] ?? '-'}
+                      </td>
+                      <td className="px-3 py-1.5" style={{ color: '#DC2626' }}>{p.medicalHistory || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setShowCsvImportDialog(false); setCsvImportPreview(null); }}
+                className="px-4 py-2 text-sm rounded-md"
+                style={{ color: '#475569', border: '1px solid #E2E8F0' }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleCsvImportConfirm}
+                disabled={csvImportPreview.persons.length === 0}
+                className={`px-4 py-2 text-sm text-white rounded-md ${csvImportPreview.persons.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                style={{ backgroundColor: '#2563EB' }}
+              >
+                インポート実行（{csvImportPreview.persons.length}件）
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
