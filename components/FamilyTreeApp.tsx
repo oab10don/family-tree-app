@@ -14,6 +14,7 @@ import ReactFlow, {
   EdgeProps,
   ReactFlowInstance,
   useReactFlow,
+  useStore,
   ReactFlowProvider,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -73,13 +74,50 @@ const nodeTypes: NodeTypes = {
 };
 
 /** 家系図専用カスタム親子エッジ（垂直+水平のみ、斜線なし） */
-const FamilyEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, targetY, style, data }) => {
-  // 両親揃いの場合、data.parentMidX に事前計算された中間点が入る
-  const startX = (data?.parentMidX as number) ?? sourceX;
+const FamilyEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, targetY, style, data, source }) => {
+  // useStore で配偶者ノードのセンターX座標を取得
+  const spouseCenterX = useStore((s) => {
+    if (!data?.spouseId) return null;
+    const n = s.nodeInternals.get(data.spouseId as string);
+    return n ? (n.positionAbsolute?.x ?? n.position.x) + (n.width ?? NODE_WIDTH) / 2 : null;
+  });
+  // useStore でソースノードのセンター座標を取得
+  const srcCenterX = useStore((s) => {
+    const n = s.nodeInternals.get(source);
+    return n ? (n.positionAbsolute?.x ?? n.position.x) + (n.width ?? NODE_WIDTH) / 2 : null;
+  });
+  const srcCenterY = useStore((s) => {
+    const n = s.nodeInternals.get(source);
+    return n ? (n.positionAbsolute?.y ?? n.position.y) + (n.height ?? NODE_HEIGHT) / 2 : null;
+  });
 
-  // 常にL字型: 垂直に下降 → 水平移動 → 垂直に下降（斜線は絶対に描画しない）
-  const midY = sourceY + (targetY - sourceY) * 0.5;
-  const pathD = `M ${startX} ${sourceY} L ${startX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
+  let startX: number;
+  let startY: number;
+
+  if (data?.spouseId && spouseCenterX != null && srcCenterX != null && srcCenterY != null) {
+    // useStore 成功: 両親の中間X・配偶者線レベルY から開始
+    startX = (srcCenterX + spouseCenterX) / 2;
+    startY = srcCenterY;
+  } else if (typeof data?.parentMidX === 'number') {
+    // フォールバック: 事前計算値
+    startX = data.parentMidX;
+    startY = typeof data?.parentMidY === 'number' ? data.parentMidY : sourceY;
+  } else {
+    // 配偶者なし: 通常通りソースのbottomハンドルから
+    startX = sourceX;
+    startY = sourceY;
+  }
+
+  let pathD: string;
+  if (Math.abs(startX - targetX) < 2) {
+    // ほぼ真下 → 直線
+    pathD = `M ${startX} ${startY} L ${targetX} ${targetY}`;
+  } else {
+    // L字型
+    const midY = startY + (targetY - startY) * 0.5;
+    pathD = `M ${startX} ${startY} L ${startX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
+  }
+
   return (
     <path
       id={id}
@@ -354,18 +392,22 @@ const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, 
       const parent0 = personMap.get(parentIds[0]);
       const maleParentId = parent0?.gender === 'male' ? parentIds[0] : parentIds[1];
       const spouseParentId = maleParentId === parentIds[0] ? parentIds[1] : parentIds[0];
-      // 両親の中間X座標を事前計算（ハンドル中央 = position.x + NODE_WIDTH / 2）
+      // 両親の中間座標を事前計算（フォールバック用）
       const pos1 = positions.get(maleParentId);
       const pos2 = positions.get(spouseParentId);
       const parentMidX = pos1 && pos2
         ? (pos1.x + pos2.x) / 2 + NODE_WIDTH / 2
+        : undefined;
+      // Y座標 = ノード中央（配偶者線が描画されるレベル）
+      const parentMidY = pos1
+        ? pos1.y + NODE_HEIGHT / 2
         : undefined;
       edges.push({
         id: `e-${maleParentId}-${childId}`,
         source: maleParentId,
         target: childId,
         type: 'familyEdge',
-        data: { spouseId: spouseParentId, parentMidX },
+        data: { spouseId: spouseParentId, parentMidX, parentMidY },
         style: { stroke: '#475569', strokeWidth: 2 },
         zIndex: 1,
       });
