@@ -65,17 +65,11 @@ const nodeTypes: NodeTypes = {
   junction: JunctionNode,
 };
 
-/** 家系図専用カスタム親子エッジ（L字型、角丸） */
+/** 家系図専用カスタム親子エッジ（垂直+水平のみ、斜線なし） */
 const FamilyEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, targetY, style }) => {
-  let pathD: string;
-  if (Math.abs(sourceX - targetX) < 15) {
-    // 真上から真下へ → 直線
-    pathD = `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`;
-  } else {
-    // L字型: 垂直に下降 → 水平移動 → 垂直に下降
-    const midY = sourceY + (targetY - sourceY) * 0.5;
-    pathD = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
-  }
+  // 常にL字型: 垂直に下降 → 水平移動 → 垂直に下降（斜線は絶対に描画しない）
+  const midY = sourceY + (targetY - sourceY) * 0.5;
+  const pathD = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
   return (
     <path
       id={id}
