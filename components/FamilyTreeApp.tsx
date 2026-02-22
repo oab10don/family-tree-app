@@ -14,6 +14,7 @@ import ReactFlow, {
   EdgeProps,
   ReactFlowInstance,
   useReactFlow,
+  useStore,
   ReactFlowProvider,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -73,10 +74,24 @@ const nodeTypes: NodeTypes = {
 };
 
 /** 家系図専用カスタム親子エッジ（垂直+水平のみ、斜線なし） */
-const FamilyEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, targetY, style }) => {
+const FamilyEdge: React.FC<EdgeProps> = ({ id, sourceX, sourceY, targetX, targetY, style, data }) => {
+  // 配偶者ノードの位置を取得（両親揃いの場合に中間点から線を降ろす）
+  const spouseNode = useStore((state) => {
+    if (!data?.spouseId) return null;
+    return state.nodeInternals.get(data.spouseId);
+  });
+
+  let startX = sourceX;
+
+  if (spouseNode) {
+    // 両親の中間X座標を起点にする
+    const spouseCenterX = (spouseNode.positionAbsolute?.x ?? spouseNode.position.x) + (spouseNode.width ?? NODE_WIDTH) / 2;
+    startX = (sourceX + spouseCenterX) / 2;
+  }
+
   // 常にL字型: 垂直に下降 → 水平移動 → 垂直に下降（斜線は絶対に描画しない）
   const midY = sourceY + (targetY - sourceY) * 0.5;
-  const pathD = `M ${sourceX} ${sourceY} L ${sourceX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
+  const pathD = `M ${startX} ${sourceY} L ${startX} ${midY} L ${targetX} ${midY} L ${targetX} ${targetY}`;
   return (
     <path
       id={id}
@@ -329,34 +344,42 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
   return positions;
 };
 
-const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, { x: number; y: number }>): { edges: Edge[]; junctionNodes: Node[] } => {
+const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, { x: number; y: number }>, persons: PersonData[]): { edges: Edge[] } => {
   const edges: Edge[] = [];
-  const junctionNodes: Node[] = [];
+  const personMap = new Map<string, PersonData>();
+  for (const p of persons) personMap.set(p.id, p);
+
+  // 子ごとに親IDを集計
   const childParents = new Map<string, string[]>();
-  for (const e of relEdges) { if (e.type === 'parent-child') { if (!childParents.has(e.target)) childParents.set(e.target, []); childParents.get(e.target)!.push(e.source); } }
+  for (const e of relEdges) {
+    if (e.type === 'parent-child') {
+      if (!childParents.has(e.target)) childParents.set(e.target, []);
+      childParents.get(e.target)!.push(e.source);
+    }
+  }
+
+  // 両親揃いの子 → 1本のエッジ（男性親から、data.spouseId付き）
   const twoParentChildren = new Set<string>();
-  const spouseJunctions = new Map<string, string>();
   for (const [childId, parentIds] of childParents) {
     if (parentIds.length === 2) {
       twoParentChildren.add(childId);
-      const pairKey = [...parentIds].sort().join('-');
-      if (!spouseJunctions.has(pairKey)) {
-        const pos1 = positions.get(parentIds[0]); const pos2 = positions.get(parentIds[1]);
-        if (pos1 && pos2) {
-          const jId = `junction-${pairKey}`;
-          // ジャンクションの中心ハンドルを両親の中間点に合わせる
-          const parentMidX = (pos1.x + pos2.x) / 2 + NODE_WIDTH / 2 - NODE_WIDTH / 2;
-          junctionNodes.push({ id: jId, type: 'junction', position: { x: parentMidX, y: Math.max(pos1.y, pos2.y) + 50 }, data: { label: '' }, selectable: false, draggable: false });
-          spouseJunctions.set(pairKey, jId);
-        }
-      }
-      const jId = spouseJunctions.get(pairKey);
-      if (jId) edges.push({ id: `e-${jId}-${childId}`, source: jId, target: childId, type: 'familyEdge', style: { stroke: '#475569', strokeWidth: 2 }, zIndex: 1 });
+      const parent0 = personMap.get(parentIds[0]);
+      const maleParentId = parent0?.gender === 'male' ? parentIds[0] : parentIds[1];
+      const spouseParentId = maleParentId === parentIds[0] ? parentIds[1] : parentIds[0];
+      edges.push({
+        id: `e-${maleParentId}-${childId}`,
+        source: maleParentId,
+        target: childId,
+        type: 'familyEdge',
+        data: { spouseId: spouseParentId },
+        style: { stroke: '#475569', strokeWidth: 2 },
+        zIndex: 1,
+      });
     }
   }
+
   for (const edge of relEdges) {
     if (edge.type === 'spouse') {
-      // ノードの実際の位置関係に基づいてハンドルを動的に決定（修正A-3+E）
       const posA = positions.get(edge.source);
       const posB = positions.get(edge.target);
       let sourceHandle: string;
@@ -371,10 +394,12 @@ const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, 
       edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'spouseEdge', sourceHandle, targetHandle, zIndex: 1 });
       continue;
     }
+    // 両親揃いの子のエッジはスキップ（上で1本に集約済み）
     if (twoParentChildren.has(edge.target)) continue;
+    // 片親の子 → 通常の1本
     edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'familyEdge', style: { stroke: '#475569', strokeWidth: 2 }, zIndex: 1 });
   }
-  return { edges, junctionNodes };
+  return { edges };
 };
 
 const buildLivingGroupNodes = (persons: PersonData[], positions: Map<string, { x: number; y: number }>): Node[] => {
@@ -543,7 +568,7 @@ const FamilyTreeAppInner: React.FC = () => {
     personsRef.current = persons;
     const positions = calculateLayout(persons);
     const relEdges = generateEdgesFromPersons(persons);
-    const { edges: flowEdges, junctionNodes } = buildFlowElements(relEdges, positions);
+    const { edges: flowEdges } = buildFlowElements(relEdges, positions, persons);
     const livingGroupNodes = buildLivingGroupNodes(persons, positions);
     const kinshipDegrees = calculateKinshipDegrees(persons);
     const personNodes: Node[] = persons.map((person) => {
@@ -557,7 +582,7 @@ const FamilyTreeAppInner: React.FC = () => {
         selected: isHighlighted,
       };
     });
-    setNodes([...livingGroupNodes, ...personNodes, ...junctionNodes]);
+    setNodes([...livingGroupNodes, ...personNodes]);
     setEdges(flowEdges);
   }, [setNodes, setEdges, handleAddRelation, handleEditPerson]);
 
