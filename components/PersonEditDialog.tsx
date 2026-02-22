@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Checkbox } from './ui/checkbox';
 import { PersonData, Relationship, relationshipLabels, getDisplayName } from '@/types/familyTree';
+import { toWareki } from '@/lib/wareki';
 
 interface PersonEditDialogProps {
   person: PersonData | null;
@@ -112,10 +113,10 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
     'grandchild', 'other',
   ];
 
-  const selectStyle = {
-    borderColor: '#E2E8F0',
-    color: '#1E293B',
-  };
+  const selectStyle = { borderColor: '#E2E8F0', color: '#1E293B' };
+
+  const birthWareki = toWareki(formData.birthDate || '');
+  const deathWareki = toWareki(formData.deathDate || '');
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
@@ -131,7 +132,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* 名前 */}
           <div>
             <Label htmlFor="name" style={{ color: '#475569' }}>名前 *</Label>
             <Input
@@ -143,7 +143,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             />
           </div>
 
-          {/* 性別 */}
           <div>
             <Label htmlFor="gender" style={{ color: '#475569' }}>性別</Label>
             <select
@@ -159,7 +158,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             </select>
           </div>
 
-          {/* 続柄 */}
           <div>
             <Label htmlFor="relationship" style={{ color: '#475569' }}>続柄 *</Label>
             <select
@@ -176,7 +174,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             </select>
           </div>
 
-          {/* 生存状態 */}
           <div>
             <Label htmlFor="lifeStatus" style={{ color: '#475569' }}>生存状態</Label>
             <select
@@ -192,7 +189,7 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             </select>
           </div>
 
-          {/* 生年月日・没年月日 */}
+          {/* 生年月日・没年月日（和暦プレビュー付き） */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="birthDate" style={{ color: '#475569' }}>生年月日</Label>
@@ -203,6 +200,9 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
                 onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
                 style={selectStyle}
               />
+              {birthWareki && (
+                <p className="text-[11px] mt-1" style={{ color: '#2563EB' }}>{birthWareki}</p>
+              )}
             </div>
             <div>
               <Label htmlFor="deathDate" style={{ color: '#475569' }}>没年月日</Label>
@@ -213,6 +213,9 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
                 onChange={(e) => setFormData({ ...formData, deathDate: e.target.value })}
                 style={selectStyle}
               />
+              {deathWareki && (
+                <p className="text-[11px] mt-1" style={{ color: '#2563EB' }}>{deathWareki}</p>
+              )}
             </div>
           </div>
 
@@ -234,26 +237,19 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             {!formData.isRepresentative && (() => {
               const currentRep = allPersons.find(p => p.isRepresentative && p.id !== formData.id);
               return currentRep ? (
-                <p className="text-xs ml-6" style={{ color: '#94A3B8' }}>
-                  現在の代表者: {currentRep.name}
-                </p>
+                <p className="text-xs ml-6" style={{ color: '#94A3B8' }}>現在の代表者: {currentRep.name}</p>
               ) : (
-                <p className="text-xs ml-6" style={{ color: '#D97706' }}>
-                  代表者が未設定です。親等計算には代表者の設定が必要です。
-                </p>
+                <p className="text-xs ml-6" style={{ color: '#D97706' }}>代表者が未設定です。親等計算には代表者の設定が必要です。</p>
               );
             })()}
             {formData.isRepresentative && (() => {
               const currentRep = allPersons.find(p => p.isRepresentative && p.id !== formData.id);
               return currentRep ? (
-                <p className="text-xs ml-6" style={{ color: '#D97706' }}>
-                  {currentRep.name}から代表者が切り替わります
-                </p>
+                <p className="text-xs ml-6" style={{ color: '#D97706' }}>{currentRep.name}から代表者が切り替わります</p>
               ) : null;
             })()}
           </div>
 
-          {/* 配偶者 */}
           <div>
             <Label htmlFor="spouseId" style={{ color: '#475569' }}>配偶者</Label>
             <select
@@ -270,7 +266,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             </select>
           </div>
 
-          {/* 親選択 */}
           <div>
             <Label style={{ color: '#475569' }}>親</Label>
             <div className="grid grid-cols-2 gap-3 mt-2">
@@ -334,9 +329,7 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
                   livingGroup: checked ? (formData.livingGroup || 1) : undefined,
                 })}
               />
-              <Label htmlFor="livingTogether" className="cursor-pointer font-medium" style={{ color: '#166534' }}>
-                同居
-              </Label>
+              <Label htmlFor="livingTogether" className="cursor-pointer font-medium" style={{ color: '#166534' }}>同居</Label>
             </div>
             {formData.livingTogether && (
               <div>
@@ -356,7 +349,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             )}
           </div>
 
-          {/* 住所・電話 */}
           <div>
             <Label htmlFor="address" style={{ color: '#475569' }}>住所</Label>
             <Input
@@ -379,7 +371,6 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
             />
           </div>
 
-          {/* メモ */}
           <div>
             <Label htmlFor="notes" style={{ color: '#475569' }}>メモ</Label>
             <textarea
@@ -393,31 +384,12 @@ export const PersonEditDialog: React.FC<PersonEditDialogProps> = ({
           </div>
 
           <div className="flex gap-2 pt-4">
-            <Button
-              type="submit"
-              className="flex-1 text-white"
-              style={{ backgroundColor: '#2563EB' }}
-            >
-              保存
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onClose}
-              className="flex-1"
-              style={{ borderColor: '#E2E8F0', color: '#475569' }}
-            >
-              キャンセル
-            </Button>
+            <Button type="submit" className="flex-1 text-white" style={{ backgroundColor: '#2563EB' }}>保存</Button>
+            <Button type="button" variant="outline" onClick={onClose} className="flex-1" style={{ borderColor: '#E2E8F0', color: '#475569' }}>キャンセル</Button>
           </div>
 
           {onDelete && formData.id && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={handleDelete}
-              className="w-full text-red-500 hover:text-red-700 hover:bg-red-50"
-            >
+            <Button type="button" variant="ghost" onClick={handleDelete} className="w-full text-red-500 hover:text-red-700 hover:bg-red-50">
               この人物を削除
             </Button>
           )}

@@ -14,10 +14,25 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { toPng } from 'html-to-image';
 import dagre from 'dagre';
-import { ChevronDown, ChevronUp, Pencil } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Pencil,
+  Plus,
+  Settings,
+  Save,
+  Undo2,
+  Redo2,
+  Search,
+  FileJson,
+  Upload,
+  Download,
+  Trash2,
+  Menu,
+  X,
+} from 'lucide-react';
 
 import { PersonNode, JunctionNode, AddRelationType } from './PersonNode';
-import { Sidebar } from './Sidebar';
 import { PersonEditDialog } from './PersonEditDialog';
 import {
   PersonData,
@@ -30,7 +45,11 @@ import {
   childSortOrder,
   relationshipLabels,
 } from '@/types/familyTree';
-import { Button } from './ui/button';
+import { formatDateShort, toWarekiShort } from '@/lib/wareki';
+import { Input } from './ui/input';
+import { Switch } from './ui/switch';
+import { Checkbox } from './ui/checkbox';
+import { Label } from './ui/label';
 
 const nodeTypes: NodeTypes = {
   person: PersonNode,
@@ -39,134 +58,81 @@ const nodeTypes: NodeTypes = {
 
 /** 同居グループの背景色 */
 const LIVING_GROUP_BG_COLORS: Record<number, string> = {
-  1: 'rgba(34,197,94,0.08)',
-  2: 'rgba(249,115,22,0.08)',
-  3: 'rgba(168,85,247,0.08)',
-  4: 'rgba(20,184,166,0.08)',
-  5: 'rgba(244,63,94,0.08)',
-  6: 'rgba(6,182,212,0.08)',
-  7: 'rgba(245,158,11,0.08)',
-  8: 'rgba(99,102,241,0.08)',
-  9: 'rgba(132,204,22,0.08)',
+  1: 'rgba(34,197,94,0.08)', 2: 'rgba(249,115,22,0.08)', 3: 'rgba(168,85,247,0.08)',
+  4: 'rgba(20,184,166,0.08)', 5: 'rgba(244,63,94,0.08)', 6: 'rgba(6,182,212,0.08)',
+  7: 'rgba(245,158,11,0.08)', 8: 'rgba(99,102,241,0.08)', 9: 'rgba(132,204,22,0.08)',
   10: 'rgba(217,70,239,0.08)',
 };
-
 const LIVING_GROUP_BORDER_COLORS: Record<number, string> = {
-  1: 'rgba(34,197,94,0.4)',
-  2: 'rgba(249,115,22,0.4)',
-  3: 'rgba(168,85,247,0.4)',
-  4: 'rgba(20,184,166,0.4)',
-  5: 'rgba(244,63,94,0.4)',
-  6: 'rgba(6,182,212,0.4)',
-  7: 'rgba(245,158,11,0.4)',
-  8: 'rgba(99,102,241,0.4)',
-  9: 'rgba(132,204,22,0.4)',
+  1: 'rgba(34,197,94,0.4)', 2: 'rgba(249,115,22,0.4)', 3: 'rgba(168,85,247,0.4)',
+  4: 'rgba(20,184,166,0.4)', 5: 'rgba(244,63,94,0.4)', 6: 'rgba(6,182,212,0.4)',
+  7: 'rgba(245,158,11,0.4)', 8: 'rgba(99,102,241,0.4)', 9: 'rgba(132,204,22,0.4)',
   10: 'rgba(217,70,239,0.4)',
 };
 
-const NODE_WIDTH = 140;
-const NODE_HEIGHT = 80;
+const NODE_WIDTH = 160;
+const NODE_HEIGHT = 100;
 
-/**
- * parentIds / spouseId からエッジを自動生成する
- */
+// --- ユーティリティ関数群 ---
+
 const generateEdgesFromPersons = (persons: PersonData[]): RelationshipEdge[] => {
   const edges: RelationshipEdge[] = [];
   const spouseEdgeSet = new Set<string>();
-
   for (const person of persons) {
     if (person.parentIds) {
       for (const parentId of person.parentIds) {
-        edges.push({
-          id: `e${parentId}-${person.id}`,
-          source: parentId,
-          target: person.id,
-          type: 'parent-child',
-        });
+        edges.push({ id: `e${parentId}-${person.id}`, source: parentId, target: person.id, type: 'parent-child' });
       }
     }
-
     if (person.spouseId) {
       const key = [person.id, person.spouseId].sort().join('-');
       if (!spouseEdgeSet.has(key)) {
         spouseEdgeSet.add(key);
-        edges.push({
-          id: `spouse-${key}`,
-          source: person.id,
-          target: person.spouseId,
-          type: 'spouse',
-        });
+        edges.push({ id: `spouse-${key}`, source: person.id, target: person.spouseId, type: 'spouse' });
       }
     }
   }
-
   return edges;
 };
 
-/**
- * 兄弟を続柄順でソートする
- */
 const sortSiblings = (persons: PersonData[]): PersonData[] => {
   const personMap = new Map<string, PersonData>();
   for (const p of persons) personMap.set(p.id, p);
-
   const parentGroupMap = new Map<string, PersonData[]>();
   const noParent: PersonData[] = [];
-
   for (const p of persons) {
     if (p.parentIds && p.parentIds.length > 0) {
       const key = [...p.parentIds].sort().join(',');
       if (!parentGroupMap.has(key)) parentGroupMap.set(key, []);
       parentGroupMap.get(key)!.push(p);
-    } else {
-      noParent.push(p);
-    }
+    } else { noParent.push(p); }
   }
-
   for (const [, siblings] of parentGroupMap) {
     siblings.sort((a, b) => {
-      const aOrder = childSortOrder[a.relationship] ?? 99;
-      const bOrder = childSortOrder[b.relationship] ?? 99;
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return a.id.localeCompare(b.id);
+      const aO = childSortOrder[a.relationship] ?? 99;
+      const bO = childSortOrder[b.relationship] ?? 99;
+      return aO !== bO ? aO - bO : a.id.localeCompare(b.id);
     });
   }
-
   const orderMap = new Map<string, number>();
   let idx = 0;
-  for (const p of noParent) {
-    orderMap.set(p.id, idx++);
-  }
-  for (const [, siblings] of parentGroupMap) {
-    for (const p of siblings) {
-      orderMap.set(p.id, idx++);
-    }
-  }
-
-  return [...persons].sort((a, b) => {
-    return (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0);
-  });
+  for (const p of noParent) orderMap.set(p.id, idx++);
+  for (const [, siblings] of parentGroupMap) for (const p of siblings) orderMap.set(p.id, idx++);
+  return [...persons].sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
 };
 
-/**
- * dagre.jsを使った自動レイアウト
- */
 const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: number }> => {
   const positions = new Map<string, { x: number; y: number }>();
   if (persons.length === 0) return positions;
-
   const sorted = sortSiblings(persons);
   const personMap = new Map<string, PersonData>();
   for (const p of sorted) personMap.set(p.id, p);
 
-  // --- BFS世代算出（dagreのランク付け補助） ---
   const generationOf = new Map<string, number>();
   const root = sorted.find(p => p.isRepresentative) ?? sorted.find(p => p.relationship === 'self') ?? sorted[0];
   generationOf.set(root.id, 0);
-
   const queue: string[] = [root.id];
   const visited = new Set<string>([root.id]);
-
   const childrenOf = new Map<string, string[]>();
   for (const p of sorted) {
     if (p.parentIds) {
@@ -176,117 +142,54 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
       }
     }
   }
-
   while (queue.length > 0) {
     const currentId = queue.shift()!;
     const currentGen = generationOf.get(currentId)!;
     const current = personMap.get(currentId);
     if (!current) continue;
-
     if (current.parentIds) {
       for (const pid of current.parentIds) {
-        if (!visited.has(pid) && personMap.has(pid)) {
-          generationOf.set(pid, currentGen - 1);
-          visited.add(pid);
-          queue.push(pid);
-        }
+        if (!visited.has(pid) && personMap.has(pid)) { generationOf.set(pid, currentGen - 1); visited.add(pid); queue.push(pid); }
       }
     }
-
-    const children = childrenOf.get(currentId) ?? [];
-    for (const cid of children) {
-      if (!visited.has(cid) && personMap.has(cid)) {
-        generationOf.set(cid, currentGen + 1);
-        visited.add(cid);
-        queue.push(cid);
-      }
+    for (const cid of (childrenOf.get(currentId) ?? [])) {
+      if (!visited.has(cid) && personMap.has(cid)) { generationOf.set(cid, currentGen + 1); visited.add(cid); queue.push(cid); }
     }
-
     if (current.spouseId && !visited.has(current.spouseId) && personMap.has(current.spouseId)) {
-      generationOf.set(current.spouseId, currentGen);
-      visited.add(current.spouseId);
-      queue.push(current.spouseId);
+      generationOf.set(current.spouseId, currentGen); visited.add(current.spouseId); queue.push(current.spouseId);
     }
   }
+  for (const p of sorted) { if (!generationOf.has(p.id)) generationOf.set(p.id, 0); }
 
-  for (const p of sorted) {
-    if (!generationOf.has(p.id)) generationOf.set(p.id, 0);
-  }
-
-  // --- dagre グラフ構築 ---
   const g = new dagre.graphlib.Graph();
-  g.setGraph({
-    rankdir: 'TB',
-    nodesep: 60,
-    ranksep: 180,
-    marginx: 50,
-    marginy: 50,
-  });
+  g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 180, marginx: 50, marginy: 50 });
   g.setDefaultEdgeLabel(() => ({}));
-
-  // 配偶者ペアを特定
-  const spousePairs = new Map<string, string>();
-  for (const p of sorted) {
-    if (p.spouseId && personMap.has(p.spouseId)) {
-      const key = [p.id, p.spouseId].sort().join('-');
-      if (!spousePairs.has(p.id)) {
-        spousePairs.set(p.id, p.spouseId);
-      }
-    }
-  }
-
-  // 処理済み配偶者ペアを追跡
-  const processedSpouse = new Set<string>();
-
-  // ノード追加（配偶者ペアは仮想コンパウンドノードとして追加）
-  for (const p of sorted) {
-    g.setNode(p.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
-  }
-
-  // 親子エッジのみ追加（配偶者はランク外で横並びにする）
+  for (const p of sorted) g.setNode(p.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
   for (const p of sorted) {
     if (p.parentIds) {
-      for (const pid of p.parentIds) {
-        if (personMap.has(pid)) {
-          g.setEdge(pid, p.id);
-        }
-      }
+      for (const pid of p.parentIds) { if (personMap.has(pid)) g.setEdge(pid, p.id); }
     }
   }
-
   dagre.layout(g);
-
-  // dagreの結果を取得
   for (const p of sorted) {
-    const nodeWithPosition = g.node(p.id);
-    if (nodeWithPosition) {
-      positions.set(p.id, {
-        x: nodeWithPosition.x - NODE_WIDTH / 2,
-        y: nodeWithPosition.y - NODE_HEIGHT / 2,
-      });
-    }
+    const n = g.node(p.id);
+    if (n) positions.set(p.id, { x: n.x - NODE_WIDTH / 2, y: n.y - NODE_HEIGHT / 2 });
   }
 
-  // 配偶者を横並びに補正
   const adjustedSpouse = new Set<string>();
   for (const p of sorted) {
     if (p.spouseId && personMap.has(p.spouseId) && !adjustedSpouse.has(p.id) && !adjustedSpouse.has(p.spouseId)) {
-      const pos1 = positions.get(p.id);
-      const pos2 = positions.get(p.spouseId);
+      const pos1 = positions.get(p.id); const pos2 = positions.get(p.spouseId);
       if (pos1 && pos2) {
-        // 同じY座標にし、横に並べる
         const avgY = Math.min(pos1.y, pos2.y);
         const centerX = (pos1.x + pos2.x) / 2;
-        const SPOUSE_GAP = 160;
-        positions.set(p.id, { x: centerX - SPOUSE_GAP / 2, y: avgY });
-        positions.set(p.spouseId, { x: centerX + SPOUSE_GAP / 2, y: avgY });
-        adjustedSpouse.add(p.id);
-        adjustedSpouse.add(p.spouseId);
+        positions.set(p.id, { x: centerX - 90, y: avgY });
+        positions.set(p.spouseId, { x: centerX + 90, y: avgY });
+        adjustedSpouse.add(p.id); adjustedSpouse.add(p.spouseId);
       }
     }
   }
 
-  // 子を両親の中央下に再配置
   const parentPairChildren = new Map<string, string[]>();
   for (const p of sorted) {
     if (p.parentIds && p.parentIds.length > 0) {
@@ -295,395 +198,135 @@ const calculateLayout = (persons: PersonData[]): Map<string, { x: number; y: num
       parentPairChildren.get(key)!.push(p.id);
     }
   }
-
   for (const [parentKey, childIds] of parentPairChildren) {
     const parentIdsList = parentKey.split(',');
     const parentXs = parentIdsList.map(id => positions.get(id)?.x ?? 0);
     const parentCenter = parentXs.reduce((a, b) => a + b, 0) / parentXs.length + NODE_WIDTH / 2;
-
-    const CHILD_GAP = 180;
+    const CHILD_GAP = 190;
     const totalWidth = (childIds.length - 1) * CHILD_GAP;
     const startX = parentCenter - totalWidth / 2 - NODE_WIDTH / 2;
-
     for (let i = 0; i < childIds.length; i++) {
-      const cid = childIds[i];
-      const existingPos = positions.get(cid);
-      if (existingPos) {
-        positions.set(cid, { x: startX + i * CHILD_GAP, y: existingPos.y });
-      }
+      const pos = positions.get(childIds[i]);
+      if (pos) positions.set(childIds[i], { x: startX + i * CHILD_GAP, y: pos.y });
     }
   }
 
-  // 重なり解消（同世代内）
   const genGroups = new Map<number, string[]>();
   for (const p of sorted) {
     const gen = generationOf.get(p.id) ?? 0;
     if (!genGroups.has(gen)) genGroups.set(gen, []);
     genGroups.get(gen)!.push(p.id);
   }
-
   for (const [, ids] of genGroups) {
-    const sortedByX = ids.sort((a, b) => (positions.get(a)?.x ?? 0) - (positions.get(b)?.x ?? 0));
-    for (let i = 1; i < sortedByX.length; i++) {
-      const prev = positions.get(sortedByX[i - 1]);
-      const curr = positions.get(sortedByX[i]);
+    ids.sort((a, b) => (positions.get(a)?.x ?? 0) - (positions.get(b)?.x ?? 0));
+    for (let i = 1; i < ids.length; i++) {
+      const prev = positions.get(ids[i - 1]); const curr = positions.get(ids[i]);
       if (prev && curr) {
         const minX = prev.x + NODE_WIDTH + 40;
-        if (curr.x < minX) {
-          positions.set(sortedByX[i], { x: minX, y: curr.y });
-        }
+        if (curr.x < minX) positions.set(ids[i], { x: minX, y: curr.y });
       }
     }
   }
-
   return positions;
 };
 
-/**
- * RelationshipEdge[] + positions → ReactFlow Edge[] + ジャンクションノード
- * 関係線の種類分け実装
- */
-const buildFlowElements = (
-  relEdges: RelationshipEdge[],
-  positions: Map<string, { x: number; y: number }>,
-): { edges: Edge[]; junctionNodes: Node[] } => {
+const buildFlowElements = (relEdges: RelationshipEdge[], positions: Map<string, { x: number; y: number }>): { edges: Edge[]; junctionNodes: Node[] } => {
   const edges: Edge[] = [];
   const junctionNodes: Node[] = [];
-
-  // 子ごとの親リスト
   const childParents = new Map<string, string[]>();
-  for (const e of relEdges) {
-    if (e.type === 'parent-child') {
-      if (!childParents.has(e.target)) childParents.set(e.target, []);
-      childParents.get(e.target)!.push(e.source);
-    }
-  }
-
-  // 2親の子を把握
+  for (const e of relEdges) { if (e.type === 'parent-child') { if (!childParents.has(e.target)) childParents.set(e.target, []); childParents.get(e.target)!.push(e.source); } }
   const twoParentChildren = new Set<string>();
   const spouseJunctions = new Map<string, string>();
-
   for (const [childId, parentIds] of childParents) {
     if (parentIds.length === 2) {
       twoParentChildren.add(childId);
-
       const pairKey = [...parentIds].sort().join('-');
       if (!spouseJunctions.has(pairKey)) {
-        const pos1 = positions.get(parentIds[0]);
-        const pos2 = positions.get(parentIds[1]);
+        const pos1 = positions.get(parentIds[0]); const pos2 = positions.get(parentIds[1]);
         if (pos1 && pos2) {
           const jId = `junction-${pairKey}`;
-          const jx = (pos1.x + pos2.x) / 2;
-          const jy = Math.max(pos1.y, pos2.y) + 45;
-
-          junctionNodes.push({
-            id: jId,
-            type: 'junction',
-            position: { x: jx, y: jy },
-            data: { label: '' },
-            selectable: false,
-            draggable: false,
-          });
-
+          junctionNodes.push({ id: jId, type: 'junction', position: { x: (pos1.x + pos2.x) / 2, y: Math.max(pos1.y, pos2.y) + 50 }, data: { label: '' }, selectable: false, draggable: false });
           spouseJunctions.set(pairKey, jId);
         }
       }
-
       const jId = spouseJunctions.get(pairKey);
-      if (jId) {
-        // 親子線: 実線、少し太め、ダークグレー
-        edges.push({
-          id: `e-${jId}-${childId}`,
-          source: jId,
-          target: childId,
-          type: 'smoothstep',
-          style: { stroke: '#475569', strokeWidth: 2 },
-          zIndex: 1,
-        });
-      }
+      if (jId) edges.push({ id: `e-${jId}-${childId}`, source: jId, target: childId, type: 'smoothstep', style: { stroke: '#475569', strokeWidth: 2 }, zIndex: 1 });
     }
   }
-
-  // エッジ生成
   for (const edge of relEdges) {
     if (edge.type === 'spouse') {
-      // 配偶者線: 二重線風（太い白線 + 細い色線）
-      // 背景の太い線
-      edges.push({
-        id: `${edge.id}-bg`,
-        source: edge.source,
-        target: edge.target,
-        type: 'straight',
-        sourceHandle: 'right-source',
-        targetHandle: 'left-target',
-        style: { stroke: '#2563EB', strokeWidth: 5 },
-        zIndex: 0,
-      });
-      // 中央の白抜き線
-      edges.push({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        type: 'straight',
-        sourceHandle: 'right-source',
-        targetHandle: 'left-target',
-        style: { stroke: '#F8FAFC', strokeWidth: 2 },
-        label: edge.label,
-        zIndex: 1,
-      });
+      edges.push({ id: `${edge.id}-bg`, source: edge.source, target: edge.target, type: 'straight', sourceHandle: 'right-source', targetHandle: 'left-target', style: { stroke: '#2563EB', strokeWidth: 5 }, zIndex: 0 });
+      edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'straight', sourceHandle: 'right-source', targetHandle: 'left-target', style: { stroke: '#F8FAFC', strokeWidth: 2 }, zIndex: 1 });
       continue;
     }
-
-    // parent-child: 2親の子はスキップ（junction経由）
     if (twoParentChildren.has(edge.target)) continue;
-
-    // 親子線: 実線
-    edges.push({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      type: 'smoothstep',
-      style: { stroke: '#475569', strokeWidth: 2 },
-      label: edge.label,
-      zIndex: 1,
-    });
+    edges.push({ id: edge.id, source: edge.source, target: edge.target, type: 'smoothstep', style: { stroke: '#475569', strokeWidth: 2 }, zIndex: 1 });
   }
-
   return { edges, junctionNodes };
 };
 
-/**
- * メンバー一覧テーブル
- */
-const MemberTable: React.FC<{
-  persons: PersonData[];
-  allPersons: PersonData[];
-  onEdit: (person: PersonData) => void;
-  onReorder: (persons: PersonData[]) => void;
-}> = ({ persons, allPersons, onEdit, onReorder }) => {
-  const getParentNames = (parentIds?: string[]) => {
-    if (!parentIds || parentIds.length === 0) return { father: '-', mother: '-' };
-    const father = parentIds.map(id => allPersons.find(p => p.id === id)).find(p => p?.gender === 'male');
-    const mother = parentIds.map(id => allPersons.find(p => p.id === id)).find(p => p?.gender === 'female');
-    return {
-      father: father ? father.name : '-',
-      mother: mother ? mother.name : '-',
-    };
-  };
-
-  const moveUp = (index: number) => {
-    if (index <= 0) return;
-    const newPersons = [...persons];
-    [newPersons[index - 1], newPersons[index]] = [newPersons[index], newPersons[index - 1]];
-    onReorder(newPersons);
-  };
-
-  const moveDown = (index: number) => {
-    if (index >= persons.length - 1) return;
-    const newPersons = [...persons];
-    [newPersons[index], newPersons[index + 1]] = [newPersons[index + 1], newPersons[index]];
-    onReorder(newPersons);
-  };
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-xs border-collapse">
-        <thead>
-          <tr style={{ backgroundColor: '#F1F5F9' }} className="border-b">
-            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>名前</th>
-            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>続柄</th>
-            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>性別</th>
-            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>父</th>
-            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>母</th>
-            <th className="px-2 py-2 text-left font-semibold" style={{ color: '#475569' }}>既往歴</th>
-            <th className="px-2 py-2 text-left font-semibold hidden lg:table-cell" style={{ color: '#475569' }}>同居</th>
-            <th className="px-2 py-2 text-left font-semibold hidden lg:table-cell" style={{ color: '#475569' }}>住所</th>
-            <th className="px-2 py-2 text-center font-semibold" style={{ color: '#475569' }}>並替</th>
-            <th className="px-2 py-2 text-center font-semibold" style={{ color: '#475569' }}>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {persons.map((person, index) => {
-            const parents = getParentNames(person.parentIds);
-            return (
-              <tr key={person.id} className="border-b hover:bg-blue-50/30">
-                <td className="px-2 py-1.5 font-medium" style={{ color: '#1E293B' }}>{getDisplayName(person)}</td>
-                <td className="px-2 py-1.5" style={{ color: '#64748B' }}>{relationshipLabels[person.relationship] ?? '-'}</td>
-                <td className="px-2 py-1.5" style={{ color: '#64748B' }}>
-                  {person.gender === 'male' ? '男' : person.gender === 'female' ? '女' : '他'}
-                </td>
-                <td className="px-2 py-1.5" style={{ color: '#64748B' }}>{parents.father}</td>
-                <td className="px-2 py-1.5" style={{ color: '#64748B' }}>{parents.mother}</td>
-                <td className="px-2 py-1.5" style={{ color: '#DC2626' }}>
-                  {person.medicalHistory || '-'}
-                </td>
-                <td className="px-2 py-1.5 hidden lg:table-cell" style={{ color: '#64748B' }}>
-                  {person.livingTogether && person.livingGroup ? person.livingGroup : '-'}
-                </td>
-                <td className="px-2 py-1.5 hidden lg:table-cell max-w-[120px] truncate" style={{ color: '#64748B' }}>
-                  {person.address || '-'}
-                </td>
-                <td className="px-2 py-1.5 text-center">
-                  <div className="flex gap-0.5 justify-center">
-                    <button
-                      onClick={() => moveUp(index)}
-                      disabled={index === 0}
-                      className="hover:text-blue-600 disabled:opacity-30"
-                      style={{ color: '#94A3B8' }}
-                      title="上へ"
-                    >
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => moveDown(index)}
-                      disabled={index === persons.length - 1}
-                      className="hover:text-blue-600 disabled:opacity-30"
-                      style={{ color: '#94A3B8' }}
-                      title="下へ"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </td>
-                <td className="px-2 py-1.5 text-center">
-                  <button
-                    onClick={() => onEdit(person)}
-                    className="hover:text-blue-700"
-                    style={{ color: '#2563EB' }}
-                    title="編集"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-};
-
-/**
- * 同居グループの囲み枠を計算する
- */
-const buildLivingGroupNodes = (
-  persons: PersonData[],
-  positions: Map<string, { x: number; y: number }>,
-): Node[] => {
+const buildLivingGroupNodes = (persons: PersonData[], positions: Map<string, { x: number; y: number }>): Node[] => {
   const groups = new Map<number, { minX: number; minY: number; maxX: number; maxY: number }>();
-
   for (const p of persons) {
     if (!p.livingTogether || !p.livingGroup) continue;
     const pos = positions.get(p.id);
     if (!pos) continue;
-
     const existing = groups.get(p.livingGroup);
-    if (existing) {
-      existing.minX = Math.min(existing.minX, pos.x);
-      existing.minY = Math.min(existing.minY, pos.y);
-      existing.maxX = Math.max(existing.maxX, pos.x + NODE_WIDTH);
-      existing.maxY = Math.max(existing.maxY, pos.y + NODE_HEIGHT);
-    } else {
-      groups.set(p.livingGroup, {
-        minX: pos.x,
-        minY: pos.y,
-        maxX: pos.x + NODE_WIDTH,
-        maxY: pos.y + NODE_HEIGHT,
-      });
-    }
+    if (existing) { existing.minX = Math.min(existing.minX, pos.x); existing.minY = Math.min(existing.minY, pos.y); existing.maxX = Math.max(existing.maxX, pos.x + NODE_WIDTH); existing.maxY = Math.max(existing.maxY, pos.y + NODE_HEIGHT); }
+    else { groups.set(p.livingGroup, { minX: pos.x, minY: pos.y, maxX: pos.x + NODE_WIDTH, maxY: pos.y + NODE_HEIGHT }); }
   }
-
   const PADDING = 30;
   const nodes: Node[] = [];
-
-  for (const [groupNum, bounds] of groups) {
-    nodes.push({
-      id: `living-group-${groupNum}`,
-      type: 'group',
-      position: {
-        x: bounds.minX - PADDING,
-        y: bounds.minY - PADDING,
-      },
-      data: { label: '' },
-      style: {
-        width: bounds.maxX - bounds.minX + PADDING * 2,
-        height: bounds.maxY - bounds.minY + PADDING * 2,
-        backgroundColor: LIVING_GROUP_BG_COLORS[groupNum] ?? 'rgba(34,197,94,0.08)',
-        border: `2px dashed ${LIVING_GROUP_BORDER_COLORS[groupNum] ?? 'rgba(34,197,94,0.4)'}`,
-        borderRadius: '8px',
-        zIndex: -1,
-        pointerEvents: 'none' as const,
-      },
-      selectable: false,
-      draggable: false,
-    });
+  for (const [gn, b] of groups) {
+    nodes.push({ id: `living-group-${gn}`, type: 'group', position: { x: b.minX - PADDING, y: b.minY - PADDING }, data: { label: '' }, style: { width: b.maxX - b.minX + PADDING * 2, height: b.maxY - b.minY + PADDING * 2, backgroundColor: LIVING_GROUP_BG_COLORS[gn] ?? 'rgba(34,197,94,0.08)', border: `2px dashed ${LIVING_GROUP_BORDER_COLORS[gn] ?? 'rgba(34,197,94,0.4)'}`, borderRadius: '8px', zIndex: -1, pointerEvents: 'none' as const }, selectable: false, draggable: false });
   }
-
   return nodes;
 };
 
-/**
- * 代表者からの親等をBFSで計算する
- */
-const calculateKinshipDegrees = (
-  persons: PersonData[],
-): Map<string, { degree: number; viaSpouse: boolean }> => {
+const calculateKinshipDegrees = (persons: PersonData[]): Map<string, { degree: number; viaSpouse: boolean }> => {
   const result = new Map<string, { degree: number; viaSpouse: boolean }>();
   if (persons.length === 0) return result;
-
   const representative = persons.find(p => p.isRepresentative);
   if (!representative) return result;
-
   const personMap = new Map<string, PersonData>();
   for (const p of persons) personMap.set(p.id, p);
-
   const adjacency = new Map<string, { targetId: string; weight: number; isSpouseEdge: boolean }[]>();
-
-  const addEdge = (from: string, to: string, weight: number, isSpouseEdge: boolean) => {
-    if (!adjacency.has(from)) adjacency.set(from, []);
-    adjacency.get(from)!.push({ targetId: to, weight, isSpouseEdge });
-  };
-
+  const addEdge = (f: string, t: string, w: number, s: boolean) => { if (!adjacency.has(f)) adjacency.set(f, []); adjacency.get(f)!.push({ targetId: t, weight: w, isSpouseEdge: s }); };
   for (const p of persons) {
-    if (p.parentIds) {
-      for (const pid of p.parentIds) {
-        if (personMap.has(pid)) {
-          addEdge(p.id, pid, 1, false);
-          addEdge(pid, p.id, 1, false);
-        }
-      }
-    }
-    if (p.spouseId && personMap.has(p.spouseId)) {
-      addEdge(p.id, p.spouseId, 0, true);
-      addEdge(p.spouseId, p.id, 0, true);
-    }
+    if (p.parentIds) { for (const pid of p.parentIds) { if (personMap.has(pid)) { addEdge(p.id, pid, 1, false); addEdge(pid, p.id, 1, false); } } }
+    if (p.spouseId && personMap.has(p.spouseId)) { addEdge(p.id, p.spouseId, 0, true); addEdge(p.spouseId, p.id, 0, true); }
   }
-
   const visited = new Map<string, { degree: number; viaSpouse: boolean }>();
-  const deque: { id: string; degree: number; viaSpouse: boolean }[] = [];
-  deque.push({ id: representative.id, degree: 0, viaSpouse: false });
-
+  const deque: { id: string; degree: number; viaSpouse: boolean }[] = [{ id: representative.id, degree: 0, viaSpouse: false }];
   while (deque.length > 0) {
     const current = deque.shift()!;
     if (visited.has(current.id)) continue;
     visited.set(current.id, { degree: current.degree, viaSpouse: current.viaSpouse });
-
-    const neighbors = adjacency.get(current.id) ?? [];
-    for (const neighbor of neighbors) {
-      if (visited.has(neighbor.targetId)) continue;
-      const newDegree = current.degree + neighbor.weight;
-      const viaSpouse = current.viaSpouse || neighbor.isSpouseEdge;
-      if (neighbor.weight === 0) {
-        deque.unshift({ id: neighbor.targetId, degree: newDegree, viaSpouse });
-      } else {
-        deque.push({ id: neighbor.targetId, degree: newDegree, viaSpouse });
-      }
+    for (const n of (adjacency.get(current.id) ?? [])) {
+      if (visited.has(n.targetId)) continue;
+      const nd = current.degree + n.weight; const vs = current.viaSpouse || n.isSpouseEdge;
+      if (n.weight === 0) deque.unshift({ id: n.targetId, degree: nd, viaSpouse: vs });
+      else deque.push({ id: n.targetId, degree: nd, viaSpouse: vs });
     }
   }
-
   return visited;
 };
+
+// --- ポップオーバーコンポーネント ---
+
+const Popover: React.FC<{ isOpen: boolean; onClose: () => void; children: React.ReactNode; className?: string }> = ({ isOpen, onClose, children, className }) => {
+  if (!isOpen) return null;
+  return (
+    <>
+      <div className="fixed inset-0 z-30" onClick={onClose} />
+      <div className={`absolute z-40 bg-white rounded-lg shadow-xl border p-3 ${className}`} style={{ borderColor: '#E2E8F0' }}>
+        {children}
+      </div>
+    </>
+  );
+};
+
+// --- メインコンポーネント ---
 
 export const FamilyTreeApp: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -693,186 +336,91 @@ export const FamilyTreeApp: React.FC = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
-  const [showFamilyTree, setShowFamilyTree] = useState(true);
+  const [showMemberList, setShowMemberList] = useState(false);
+  const [showSettingsPopover, setShowSettingsPopover] = useState(false);
+  const [showSavePopover, setShowSavePopover] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   const flowRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Undo/Redo
   const [personHistory, setPersonHistory] = useState<PersonData[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-
   const personsRef = useRef<PersonData[]>([]);
 
-  /** +ボタンから関係者を追加するハンドラ */
   const handleAddRelation = useCallback((personId: string, relationType: AddRelationType) => {
     const currentPerson = personsRef.current.find(p => p.id === personId);
     if (!currentPerson) return;
-
     const newId = `p${Date.now()}`;
     let newPerson: PersonData;
-
     switch (relationType) {
       case 'father':
-        newPerson = {
-          id: newId,
-          name: '',
-          gender: 'male',
-          lifeStatus: 'alive',
-          relationship: 'father',
-          isRepresentative: false,
-        };
-        // 既存の人物にparentIdとして追加
-        const withFather = personsRef.current.map(p => {
-          if (p.id === personId) {
-            const parentIds = p.parentIds ? [...p.parentIds.filter(pid => {
-              const parent = personsRef.current.find(pp => pp.id === pid);
-              return parent?.gender !== 'male';
-            }), newId] : [newId];
-            return { ...p, parentIds };
-          }
+        newPerson = { id: newId, name: '', gender: 'male', lifeStatus: 'alive', relationship: 'father', isRepresentative: false };
+        const wf = personsRef.current.map(p => {
+          if (p.id === personId) { const pids = p.parentIds ? [...p.parentIds.filter(pid => { const pr = personsRef.current.find(pp => pp.id === pid); return pr?.gender !== 'male'; }), newId] : [newId]; return { ...p, parentIds: pids }; }
           return p;
         });
-        updatePersonsInternal([...withFather, newPerson]);
-        setSelectedPerson(newPerson);
-        setIsDialogOpen(true);
-        return;
-
+        updatePersonsInternal([...wf, newPerson]); setSelectedPerson(newPerson); setIsDialogOpen(true); return;
       case 'mother':
-        newPerson = {
-          id: newId,
-          name: '',
-          gender: 'female',
-          lifeStatus: 'alive',
-          relationship: 'mother',
-          isRepresentative: false,
-        };
-        const withMother = personsRef.current.map(p => {
-          if (p.id === personId) {
-            const parentIds = p.parentIds ? [...p.parentIds.filter(pid => {
-              const parent = personsRef.current.find(pp => pp.id === pid);
-              return parent?.gender !== 'female';
-            }), newId] : [newId];
-            return { ...p, parentIds };
-          }
+        newPerson = { id: newId, name: '', gender: 'female', lifeStatus: 'alive', relationship: 'mother', isRepresentative: false };
+        const wm = personsRef.current.map(p => {
+          if (p.id === personId) { const pids = p.parentIds ? [...p.parentIds.filter(pid => { const pr = personsRef.current.find(pp => pp.id === pid); return pr?.gender !== 'female'; }), newId] : [newId]; return { ...p, parentIds: pids }; }
           return p;
         });
-        updatePersonsInternal([...withMother, newPerson]);
-        setSelectedPerson(newPerson);
-        setIsDialogOpen(true);
-        return;
-
+        updatePersonsInternal([...wm, newPerson]); setSelectedPerson(newPerson); setIsDialogOpen(true); return;
       case 'spouse':
-        newPerson = {
-          id: newId,
-          name: '',
-          gender: currentPerson.gender === 'male' ? 'female' : 'male',
-          lifeStatus: 'alive',
-          relationship: 'spouse',
-          spouseId: personId,
-          isRepresentative: false,
-        };
-        const withSpouse = personsRef.current.map(p => {
-          if (p.id === personId) return { ...p, spouseId: newId };
-          return p;
-        });
-        updatePersonsInternal([...withSpouse, newPerson]);
-        setSelectedPerson(newPerson);
-        setIsDialogOpen(true);
-        return;
-
+        newPerson = { id: newId, name: '', gender: currentPerson.gender === 'male' ? 'female' : 'male', lifeStatus: 'alive', relationship: 'spouse', spouseId: personId, isRepresentative: false };
+        const ws = personsRef.current.map(p => p.id === personId ? { ...p, spouseId: newId } : p);
+        updatePersonsInternal([...ws, newPerson]); setSelectedPerson(newPerson); setIsDialogOpen(true); return;
       case 'child':
-        newPerson = {
-          id: newId,
-          name: '',
-          gender: 'male',
-          lifeStatus: 'alive',
-          relationship: 'other',
-          isRepresentative: false,
-          parentIds: currentPerson.spouseId
-            ? [personId, currentPerson.spouseId]
-            : [personId],
-        };
-        updatePersonsInternal([...personsRef.current, newPerson]);
-        setSelectedPerson(newPerson);
-        setIsDialogOpen(true);
-        return;
+        newPerson = { id: newId, name: '', gender: 'male', lifeStatus: 'alive', relationship: 'other', isRepresentative: false, parentIds: currentPerson.spouseId ? [personId, currentPerson.spouseId] : [personId] };
+        updatePersonsInternal([...personsRef.current, newPerson]); setSelectedPerson(newPerson); setIsDialogOpen(true); return;
     }
   }, []);
 
-  /** PersonData[]からノード&エッジを再構築 */
-  const rebuildFlow = useCallback((persons: PersonData[], displaySettings: DisplaySettings) => {
+  const rebuildFlow = useCallback((persons: PersonData[], ds: DisplaySettings) => {
     personsRef.current = persons;
     const positions = calculateLayout(persons);
     const relEdges = generateEdgesFromPersons(persons);
     const { edges: flowEdges, junctionNodes } = buildFlowElements(relEdges, positions);
     const livingGroupNodes = buildLivingGroupNodes(persons, positions);
     const kinshipDegrees = calculateKinshipDegrees(persons);
-
     const personNodes: Node[] = persons.map((person) => {
       const kinship = kinshipDegrees.get(person.id);
-      return {
-        id: person.id,
-        type: 'person',
-        position: positions.get(person.id) || { x: 0, y: 0 },
-        data: {
-          ...person,
-          label: person.name,
-          settings: displaySettings,
-          kinshipDegree: kinship?.degree,
-          kinshipViaSpouse: kinship?.viaSpouse,
-          onAddRelation: handleAddRelation,
-        },
-      };
+      return { id: person.id, type: 'person', position: positions.get(person.id) || { x: 0, y: 0 }, data: { ...person, label: person.name, settings: ds, kinshipDegree: kinship?.degree, kinshipViaSpouse: kinship?.viaSpouse, onAddRelation: handleAddRelation } };
     });
-
     setNodes([...livingGroupNodes, ...personNodes, ...junctionNodes]);
     setEdges(flowEdges);
   }, [setNodes, setEdges, handleAddRelation]);
 
-  /** 履歴にスナップショットを追加 */
   const pushHistory = useCallback((persons: PersonData[]) => {
-    setPersonHistory(prev => {
-      const newHist = prev.slice(0, historyIndex + 1);
-      newHist.push(JSON.parse(JSON.stringify(persons)));
-      if (newHist.length > 50) newHist.shift();
-      return newHist;
-    });
+    setPersonHistory(prev => { const h = prev.slice(0, historyIndex + 1); h.push(JSON.parse(JSON.stringify(persons))); if (h.length > 50) h.shift(); return h; });
     setHistoryIndex(prev => Math.min(prev + 1, 49));
   }, [historyIndex]);
 
-  /** PersonData[]を更新し、フローとヒストリーを同期 */
   const updatePersons = useCallback((persons: PersonData[], skipHistory = false) => {
-    if (!skipHistory) {
-      pushHistory(persons);
-    }
+    if (!skipHistory) pushHistory(persons);
     rebuildFlow(persons, settings);
   }, [rebuildFlow, settings, pushHistory]);
 
-  /** handleAddRelationから呼ばれる内部更新（settingsのclosure問題回避） */
   const updatePersonsRef = useRef(updatePersons);
   updatePersonsRef.current = updatePersons;
+  const updatePersonsInternal = useCallback((persons: PersonData[]) => { updatePersonsRef.current(persons); }, []);
 
-  const updatePersonsInternal = useCallback((persons: PersonData[]) => {
-    updatePersonsRef.current(persons);
-  }, []);
-
-  // 初回ロード
   useEffect(() => {
     const autoSaved = localStorage.getItem('familyTreeAutoSave');
     if (autoSaved) {
       try {
         const data: FamilyTreeData = JSON.parse(autoSaved);
         if (confirm('自動保存されたデータが見つかりました。復元しますか？')) {
-          setSettings(data.settings);
+          // 旧設定との互換性: 新フィールドがない場合デフォルト値を補完
+          const mergedSettings = { ...defaultSettings, ...data.settings };
+          setSettings(mergedSettings);
           personsRef.current = data.nodes;
-          rebuildFlow(data.nodes, data.settings);
+          rebuildFlow(data.nodes, mergedSettings);
           pushHistory(data.nodes);
           return;
         }
-      } catch (e) {
-        console.error('自動保存データの読み込みに失敗しました', e);
-      }
+      } catch (e) { console.error('自動保存データの読み込みに失敗しました', e); }
     }
     setSettings(sampleData.settings);
     personsRef.current = sampleData.nodes;
@@ -880,338 +428,307 @@ export const FamilyTreeApp: React.FC = () => {
     pushHistory(sampleData.nodes);
   }, []);
 
-  // 自動保存
   useEffect(() => {
-    const autoSaveInterval = setInterval(() => {
-      const data: FamilyTreeData = {
-        version: '1.0.0',
-        settings,
-        nodes: personsRef.current,
-        edges: generateEdgesFromPersons(personsRef.current),
-      };
-      localStorage.setItem('familyTreeAutoSave', JSON.stringify(data));
+    const id = setInterval(() => {
+      localStorage.setItem('familyTreeAutoSave', JSON.stringify({ version: '1.0.0', settings, nodes: personsRef.current, edges: generateEdgesFromPersons(personsRef.current) }));
     }, 5000);
-    return () => clearInterval(autoSaveInterval);
+    return () => clearInterval(id);
   }, [settings]);
 
-  // 設定変更時にノードを更新
-  useEffect(() => {
-    if (personsRef.current.length > 0) {
-      rebuildFlow(personsRef.current, settings);
-    }
-  }, [settings, rebuildFlow]);
+  useEffect(() => { if (personsRef.current.length > 0) rebuildFlow(personsRef.current, settings); }, [settings, rebuildFlow]);
 
-  // キーボードショートカット
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        handleUndo();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-        e.preventDefault();
-        handleRedo();
-      }
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); handleRedo(); }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
   });
 
   const handleUndo = useCallback(() => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      const prev = personHistory[newIndex];
-      if (prev) {
-        setHistoryIndex(newIndex);
-        personsRef.current = prev;
-        rebuildFlow(prev, settings);
-      }
-    }
+    if (historyIndex > 0) { const ni = historyIndex - 1; const prev = personHistory[ni]; if (prev) { setHistoryIndex(ni); personsRef.current = prev; rebuildFlow(prev, settings); } }
   }, [historyIndex, personHistory, rebuildFlow, settings]);
 
   const handleRedo = useCallback(() => {
-    if (historyIndex < personHistory.length - 1) {
-      const newIndex = historyIndex + 1;
-      const next = personHistory[newIndex];
-      if (next) {
-        setHistoryIndex(newIndex);
-        personsRef.current = next;
-        rebuildFlow(next, settings);
-      }
-    }
+    if (historyIndex < personHistory.length - 1) { const ni = historyIndex + 1; const next = personHistory[ni]; if (next) { setHistoryIndex(ni); personsRef.current = next; rebuildFlow(next, settings); } }
   }, [historyIndex, personHistory, rebuildFlow, settings]);
 
-  const getCurrentData = (): FamilyTreeData => {
-    return {
-      version: '1.0.0',
-      settings,
-      nodes: personsRef.current,
-      edges: generateEdgesFromPersons(personsRef.current),
-    };
-  };
-
-  const loadData = (data: FamilyTreeData) => {
-    setSettings(data.settings);
-    personsRef.current = data.nodes;
-    rebuildFlow(data.nodes, data.settings);
-    pushHistory(data.nodes);
-  };
-
   const handleAddPerson = useCallback(() => {
-    const newPerson: PersonData = {
-      id: `p${Date.now()}`,
-      name: '',
-      gender: 'male',
-      lifeStatus: 'alive',
-      relationship: 'other',
-      isRepresentative: false,
-      parentIds: [],
-    };
-
-    const allPersons = [...personsRef.current, newPerson];
-    updatePersons(allPersons);
-
-    setSelectedPerson(newPerson);
-    setIsDialogOpen(true);
+    const np: PersonData = { id: `p${Date.now()}`, name: '', gender: 'male', lifeStatus: 'alive', relationship: 'other', isRepresentative: false, parentIds: [] };
+    updatePersons([...personsRef.current, np]);
+    setSelectedPerson(np); setIsDialogOpen(true);
   }, [updatePersons]);
 
-  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
+  const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
     if (node.type !== 'person') return;
     const { settings: _, label: __, onAddRelation: ___, ...personData } = node.data;
-    setSelectedPerson(personData as PersonData);
-    setIsDialogOpen(true);
+    setSelectedPerson(personData as PersonData); setIsDialogOpen(true);
   }, []);
 
-  const handleSavePerson = useCallback(
-    (updatedPerson: PersonData) => {
-      let allPersons = personsRef.current.map((p) =>
-        p.id === updatedPerson.id ? updatedPerson : p
-      );
+  const handleSavePerson = useCallback((up: PersonData) => {
+    let all = personsRef.current.map(p => p.id === up.id ? up : p);
+    if (up.isRepresentative) all = all.map(p => p.id !== up.id ? { ...p, isRepresentative: false } : p);
+    if (up.spouseId) all = all.map(p => p.id === up.spouseId ? { ...p, spouseId: up.id } : p);
+    const old = personsRef.current.find(p => p.id === up.id);
+    if (old?.spouseId && old.spouseId !== up.spouseId) all = all.map(p => p.id === old.spouseId && p.spouseId === up.id ? { ...p, spouseId: undefined } : p);
+    if (!up.spouseId && old?.spouseId) all = all.map(p => p.id === old.spouseId && p.spouseId === up.id ? { ...p, spouseId: undefined } : p);
+    updatePersons(all);
+  }, [updatePersons]);
 
-      if (updatedPerson.isRepresentative) {
-        allPersons = allPersons.map(p =>
-          p.id !== updatedPerson.id ? { ...p, isRepresentative: false } : p
-        );
-      }
-
-      if (updatedPerson.spouseId) {
-        allPersons = allPersons.map(p =>
-          p.id === updatedPerson.spouseId
-            ? { ...p, spouseId: updatedPerson.id }
-            : p
-        );
-      }
-
-      const oldPerson = personsRef.current.find(p => p.id === updatedPerson.id);
-      if (oldPerson?.spouseId && oldPerson.spouseId !== updatedPerson.spouseId) {
-        allPersons = allPersons.map(p =>
-          p.id === oldPerson.spouseId && p.spouseId === updatedPerson.id
-            ? { ...p, spouseId: undefined }
-            : p
-        );
-      }
-
-      if (!updatedPerson.spouseId && oldPerson?.spouseId) {
-        allPersons = allPersons.map(p =>
-          p.id === oldPerson.spouseId && p.spouseId === updatedPerson.id
-            ? { ...p, spouseId: undefined }
-            : p
-        );
-      }
-
-      updatePersons(allPersons);
-    },
-    [updatePersons]
-  );
-
-  const handleDeletePerson = useCallback(
-    (personId: string) => {
-      const allPersons = personsRef.current
-        .filter(p => p.id !== personId)
-        .map(p => ({
-          ...p,
-          parentIds: p.parentIds?.filter(id => id !== personId),
-          spouseId: p.spouseId === personId ? undefined : p.spouseId,
-        }));
-      updatePersons(allPersons);
-    },
-    [updatePersons]
-  );
-
-  const handleEditFromTable = useCallback((person: PersonData) => {
-    setSelectedPerson(person);
-    setIsDialogOpen(true);
-  }, []);
-
-  const handleReorder = useCallback((newPersons: PersonData[]) => {
-    updatePersons(newPersons);
+  const handleDeletePerson = useCallback((id: string) => {
+    updatePersons(personsRef.current.filter(p => p.id !== id).map(p => ({ ...p, parentIds: p.parentIds?.filter(pid => pid !== id), spouseId: p.spouseId === id ? undefined : p.spouseId })));
   }, [updatePersons]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
-    if (query.trim() === '') {
-      setNodes((nds) => nds.map((node) => ({ ...node, hidden: false })));
-      return;
-    }
-
-    setNodes((nds) =>
-      nds.map((node) => ({
-        ...node,
-        hidden: node.type === 'person'
-          ? !node.data.name.toLowerCase().includes(query.toLowerCase())
-          : true,
-      }))
-    );
-
-    const matchingNode = nodes.find(n =>
-      n.type === 'person' && n.data.name.toLowerCase().includes(query.toLowerCase())
-    );
-    if (matchingNode && reactFlowInstance) {
-      reactFlowInstance.setCenter(
-        matchingNode.position.x,
-        matchingNode.position.y,
-        { zoom: 1.5, duration: 800 }
-      );
-    }
+    if (query.trim() === '') { setNodes(nds => nds.map(n => ({ ...n, hidden: false }))); return; }
+    setNodes(nds => nds.map(n => ({ ...n, hidden: n.type === 'person' ? !n.data.name.toLowerCase().includes(query.toLowerCase()) : true })));
+    const mn = nodes.find(n => n.type === 'person' && n.data.name.toLowerCase().includes(query.toLowerCase()));
+    if (mn && reactFlowInstance) reactFlowInstance.setCenter(mn.position.x, mn.position.y, { zoom: 1.5, duration: 800 });
   }, [setNodes, nodes, reactFlowInstance]);
 
   const handleExportJSON = useCallback(() => {
-    const data = getCurrentData();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ version: '1.0.0', settings, nodes: personsRef.current, edges: generateEdgesFromPersons(personsRef.current) }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `family-tree-${new Date().getTime()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const a = document.createElement('a'); a.href = url; a.download = `family-tree-${Date.now()}.json`; a.click();
+    URL.revokeObjectURL(url); setShowSavePopover(false);
   }, [settings]);
 
-  const handleImportJSON = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
+  const handleImportJSON = useCallback(() => { fileInputRef.current?.click(); setShowSavePopover(false); }, []);
 
-  const handleFileChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          try {
-            const data: FamilyTreeData = JSON.parse(e.target?.result as string);
-            loadData(data);
-          } catch {
-            alert('ファイルの読み込みに失敗しました');
-          }
-        };
-        reader.readAsText(file);
-      }
-      event.target.value = '';
-    },
-    []
-  );
+  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => { try { const data: FamilyTreeData = JSON.parse(e.target?.result as string); const ms = { ...defaultSettings, ...data.settings }; setSettings(ms); personsRef.current = data.nodes; rebuildFlow(data.nodes, ms); pushHistory(data.nodes); } catch { alert('ファイルの読み込みに失敗しました'); } };
+      reader.readAsText(file);
+    }
+    event.target.value = '';
+  }, [rebuildFlow, pushHistory]);
 
   const handleExportImage = useCallback(() => {
     if (flowRef.current) {
       toPng(flowRef.current, { backgroundColor: '#F8FAFC', cacheBust: true })
-        .then((dataUrl) => {
-          const link = document.createElement('a');
-          link.href = dataUrl;
-          link.download = `family-tree-${new Date().getTime()}.png`;
-          link.click();
-        })
-        .catch((error) => {
-          console.error('画像の生成に失敗しました:', error);
-        });
+        .then(url => { const a = document.createElement('a'); a.href = url; a.download = `family-tree-${Date.now()}.png`; a.click(); })
+        .catch(err => console.error('画像の生成に失敗しました:', err));
     }
+    setShowSavePopover(false);
   }, []);
 
   const handleReset = useCallback(() => {
     if (confirm('全てのデータを消去しますか？\n\nこの操作は取り消せません。')) {
-      localStorage.removeItem('familyTreeAutoSave');
-      personsRef.current = [];
-      rebuildFlow([], settings);
-      setPersonHistory([]);
-      setHistoryIndex(-1);
-      pushHistory([]);
+      localStorage.removeItem('familyTreeAutoSave'); personsRef.current = []; rebuildFlow([], settings); setPersonHistory([]); setHistoryIndex(-1); pushHistory([]);
     }
+    setShowSavePopover(false);
   }, [rebuildFlow, settings, pushHistory]);
 
   const allPersons = personsRef.current;
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < personHistory.length - 1;
 
   return (
-    <div className="h-screen w-full flex" style={{ backgroundColor: '#F8FAFC' }}>
-      <Sidebar
-        settings={settings}
-        onSettingsChange={setSettings}
-        onExportJSON={handleExportJSON}
-        onImportJSON={handleImportJSON}
-        onExportImage={handleExportImage}
-        onReset={handleReset}
-        onAddPerson={handleAddPerson}
-        onSearch={handleSearch}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        canUndo={historyIndex > 0}
-        canRedo={historyIndex < personHistory.length - 1}
-      />
+    <div className="h-screen w-full flex flex-col" style={{ backgroundColor: '#F8FAFC' }}>
+      <input ref={fileInputRef} type="file" accept=".json" onChange={handleFileChange} className="hidden" />
 
-      <main className="flex-1 h-full flex flex-col overflow-hidden">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json"
-          onChange={handleFileChange}
-          className="hidden"
-        />
+      {/* ヘッダーバー */}
+      <header className="h-12 flex items-center px-4 gap-3 shrink-0" style={{ backgroundColor: '#fff', borderBottom: '1px solid #E2E8F0' }}>
+        {/* モバイルメニュー */}
+        <button className="md:hidden" onClick={() => setShowMobileMenu(!showMobileMenu)} style={{ color: '#475569' }}>
+          <Menu className="w-5 h-5" />
+        </button>
 
-        <div style={{ borderBottom: '1px solid #E2E8F0' }}>
-          <button
-            onClick={() => setShowFamilyTree(!showFamilyTree)}
-            className="w-full flex items-center justify-between px-4 py-2 hover:bg-blue-50/50 text-sm font-medium transition-colors"
-            style={{ backgroundColor: '#F8FAFC', color: '#475569' }}
-          >
-            <span>家系図</span>
-            {showFamilyTree ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
+        {/* アプリ名 */}
+        <div className="shrink-0">
+          <span className="font-bold text-sm" style={{ color: '#1E293B' }}>家系図ツール</span>
         </div>
 
-        {showFamilyTree && (
-          <div className="relative" style={{ backgroundColor: '#F8FAFC', height: '50%', minHeight: 200 }}>
-            <div ref={flowRef} className="w-full h-full">
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onNodeClick={onNodeClick}
-                onInit={setReactFlowInstance}
-                nodeTypes={nodeTypes}
-                nodesDraggable={false}
-                fitView
-              >
-                <Controls />
-                <Background color="#E2E8F0" gap={20} />
-              </ReactFlow>
-            </div>
-
-            <div
-              className="absolute bottom-2 right-2 text-xs px-3 py-1 rounded-full shadow-sm"
-              style={{ backgroundColor: '#fff', color: '#94A3B8', border: '1px solid #E2E8F0' }}
-            >
-              自動保存中...
-            </div>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-auto p-4" style={{ backgroundColor: '#fff' }}>
-          <h3 className="text-sm font-semibold mb-2" style={{ color: '#475569' }}>メンバー一覧</h3>
-          <MemberTable
-            persons={allPersons}
-            allPersons={allPersons}
-            onEdit={handleEditFromTable}
-            onReorder={handleReorder}
+        {/* 検索 */}
+        <div className="flex-1 max-w-xs relative hidden md:block">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: '#94A3B8' }} />
+          <Input
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            placeholder="名前で検索..."
+            className="pl-8 h-8 text-xs"
+            style={{ borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }}
           />
         </div>
-      </main>
+
+        <div className="flex-1" />
+
+        {/* 右側アクション */}
+        <div className="flex items-center gap-1">
+          <button onClick={handleUndo} disabled={!canUndo} className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30" title="元に戻す (Ctrl+Z)" style={{ color: '#475569' }}>
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button onClick={handleRedo} disabled={!canRedo} className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30" title="やり直す (Ctrl+Y)" style={{ color: '#475569' }}>
+            <Redo2 className="w-4 h-4" />
+          </button>
+
+          <div className="w-px h-5 mx-1" style={{ backgroundColor: '#E2E8F0' }} />
+
+          <div
+            className="absolute bottom-2 right-2 text-xs px-3 py-1 rounded-full shadow-sm hidden"
+            style={{ backgroundColor: '#fff', color: '#94A3B8', border: '1px solid #E2E8F0' }}
+          >
+            自動保存中...
+          </div>
+        </div>
+      </header>
+
+      {/* モバイルメニュー展開 */}
+      {showMobileMenu && (
+        <div className="md:hidden p-3 flex flex-col gap-2" style={{ backgroundColor: '#fff', borderBottom: '1px solid #E2E8F0' }}>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: '#94A3B8' }} />
+            <Input value={searchQuery} onChange={(e) => handleSearch(e.target.value)} placeholder="名前で検索..." className="pl-8 h-8 text-xs" style={{ borderColor: '#E2E8F0' }} />
+          </div>
+          <button onClick={() => { setShowMobileMenu(false); handleAddPerson(); }} className="text-left text-sm px-2 py-1.5 rounded hover:bg-blue-50" style={{ color: '#2563EB' }}>
+            <Plus className="w-4 h-4 inline mr-2" />人物を追加
+          </button>
+        </div>
+      )}
+
+      {/* メインエリア */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* 左ツールバー */}
+        <div className="w-12 hidden md:flex flex-col items-center py-2 gap-1 shrink-0" style={{ backgroundColor: '#fff', borderRight: '1px solid #E2E8F0' }}>
+          <button onClick={handleAddPerson} className="p-2 rounded-md hover:bg-blue-50 transition-colors" title="人物を追加" style={{ color: '#2563EB' }}>
+            <Plus className="w-5 h-5" />
+          </button>
+
+          {/* 表示設定ポップオーバー */}
+          <div className="relative">
+            <button onClick={() => setShowSettingsPopover(!showSettingsPopover)} className="p-2 rounded-md hover:bg-gray-100 transition-colors" title="表示設定" style={{ color: '#475569' }}>
+              <Settings className="w-5 h-5" />
+            </button>
+            <Popover isOpen={showSettingsPopover} onClose={() => setShowSettingsPopover(false)} className="left-full ml-2 top-0 w-56">
+              <h4 className="font-semibold text-xs mb-3" style={{ color: '#475569' }}>表示設定</h4>
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs" style={{ color: '#64748B' }}>性別で色分け</Label>
+                  <Switch checked={settings.colorByGender} onCheckedChange={(c) => setSettings({ ...settings, colorByGender: c })} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs" style={{ color: '#64748B' }}>名前</Label>
+                  <Checkbox checked={settings.showName} onCheckedChange={(c) => setSettings({ ...settings, showName: c as boolean })} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs" style={{ color: '#64748B' }}>生年月日</Label>
+                  <Checkbox checked={settings.showBirthDate} onCheckedChange={(c) => setSettings({ ...settings, showBirthDate: c as boolean })} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs" style={{ color: '#64748B' }}>続柄</Label>
+                  <Checkbox checked={settings.showRelationship} onCheckedChange={(c) => setSettings({ ...settings, showRelationship: c as boolean })} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs" style={{ color: '#64748B' }}>既往歴</Label>
+                  <Checkbox checked={settings.showMedicalHistory} onCheckedChange={(c) => setSettings({ ...settings, showMedicalHistory: c as boolean })} />
+                </div>
+              </div>
+            </Popover>
+          </div>
+
+          {/* 保存ポップオーバー */}
+          <div className="relative">
+            <button onClick={() => setShowSavePopover(!showSavePopover)} className="p-2 rounded-md hover:bg-gray-100 transition-colors" title="保存・出力" style={{ color: '#475569' }}>
+              <Save className="w-5 h-5" />
+            </button>
+            <Popover isOpen={showSavePopover} onClose={() => setShowSavePopover(false)} className="left-full ml-2 top-0 w-52">
+              <div className="space-y-1">
+                <button onClick={handleExportJSON} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <FileJson className="w-3.5 h-3.5" />JSONエクスポート
+                </button>
+                <button onClick={handleImportJSON} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <Upload className="w-3.5 h-3.5" />JSONインポート
+                </button>
+                <button onClick={handleExportImage} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 flex items-center gap-2" style={{ color: '#475569' }}>
+                  <Download className="w-3.5 h-3.5" />画像ダウンロード
+                </button>
+                <div className="my-1" style={{ borderTop: '1px solid #E2E8F0' }} />
+                <button onClick={handleReset} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-red-50 flex items-center gap-2" style={{ color: '#DC2626' }}>
+                  <Trash2 className="w-3.5 h-3.5" />全て消去
+                </button>
+              </div>
+            </Popover>
+          </div>
+        </div>
+
+        {/* キャンバス */}
+        <div className="flex-1 relative" style={{ backgroundColor: '#F8FAFC' }}>
+          <div ref={flowRef} className="w-full h-full">
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeClick={onNodeClick}
+              onInit={setReactFlowInstance}
+              nodeTypes={nodeTypes}
+              nodesDraggable={false}
+              fitView
+            >
+              <Controls />
+              <Background color="#E2E8F0" gap={20} />
+            </ReactFlow>
+          </div>
+          <div className="absolute bottom-2 right-2 text-[10px] px-2 py-0.5 rounded-full" style={{ backgroundColor: '#fff', color: '#CBD5E1', border: '1px solid #E2E8F0' }}>
+            自動保存中
+          </div>
+        </div>
+      </div>
+
+      {/* 下部メンバー一覧（折りたたみ） */}
+      <div className="shrink-0" style={{ backgroundColor: '#fff', borderTop: '1px solid #E2E8F0' }}>
+        <button
+          onClick={() => setShowMemberList(!showMemberList)}
+          className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-blue-50/30 transition-colors"
+          style={{ color: '#475569' }}
+        >
+          <span>メンバー一覧（{allPersons.length}人）</span>
+          {showMemberList ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+        </button>
+        {showMemberList && (
+          <div className="overflow-auto" style={{ maxHeight: 280 }}>
+            <table className="min-w-full text-xs border-collapse">
+              <thead>
+                <tr style={{ backgroundColor: '#F1F5F9' }} className="border-b">
+                  <th className="px-3 py-2 text-left font-semibold" style={{ color: '#475569' }}>名前</th>
+                  <th className="px-3 py-2 text-left font-semibold" style={{ color: '#475569' }}>性別</th>
+                  <th className="px-3 py-2 text-left font-semibold" style={{ color: '#475569' }}>生年月日</th>
+                  <th className="px-3 py-2 text-left font-semibold" style={{ color: '#475569' }}>続柄</th>
+                  <th className="px-3 py-2 text-left font-semibold" style={{ color: '#475569' }}>既往歴</th>
+                  <th className="px-3 py-2 text-center font-semibold" style={{ color: '#475569' }}>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allPersons.map((person) => (
+                  <tr key={person.id} className="border-b hover:bg-blue-50/30">
+                    <td className="px-3 py-1.5 font-medium" style={{ color: '#1E293B' }}>{getDisplayName(person)}</td>
+                    <td className="px-3 py-1.5" style={{ color: '#64748B' }}>{person.gender === 'male' ? '男' : person.gender === 'female' ? '女' : '他'}</td>
+                    <td className="px-3 py-1.5" style={{ color: '#64748B' }}>
+                      {person.birthDate ? (
+                        <>
+                          {formatDateShort(person.birthDate)}
+                          {toWarekiShort(person.birthDate) && <span className="ml-1" style={{ color: '#94A3B8' }}>({toWarekiShort(person.birthDate)})</span>}
+                        </>
+                      ) : '-'}
+                    </td>
+                    <td className="px-3 py-1.5" style={{ color: '#64748B' }}>{relationshipLabels[person.relationship] ?? '-'}</td>
+                    <td className="px-3 py-1.5" style={{ color: '#DC2626' }}>{person.medicalHistory || '-'}</td>
+                    <td className="px-3 py-1.5 text-center">
+                      <button onClick={() => { setSelectedPerson(person); setIsDialogOpen(true); }} className="hover:text-blue-700" style={{ color: '#2563EB' }} title="編集">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <PersonEditDialog
         person={selectedPerson}

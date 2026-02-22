@@ -53,22 +53,19 @@ export interface PersonData {
   relationship: Relationship;
   birthDate?: string;
   deathDate?: string;
-  photo?: string; // 互換性のため残置（UIでは非使用）
   notes?: string;
-  medicalHistory?: string; // 既往歴
+  medicalHistory?: string;
   isRepresentative?: boolean;
   parentIds?: string[];
   spouseId?: string;
-  // 同居/別居
   livingTogether?: boolean;
-  livingGroup?: number; // 1〜10
-  // 住所・電話
+  livingGroup?: number;
   address?: string;
   phone?: string;
 }
 
 /**
- * 性別記号を付与した表示名を返す（データは汚さない）
+ * 性別記号を付与した表示名を返す
  */
 export const getDisplayName = (person: PersonData): string => {
   const symbol = person.gender === 'male' ? '♂ ' : person.gender === 'female' ? '♀ ' : '';
@@ -97,9 +94,10 @@ export interface RelationshipEdge {
 // 表示設定の型
 export interface DisplaySettings {
   showName: boolean;
-  showNotes: boolean;
+  showBirthDate: boolean;
+  showRelationship: boolean;
+  showMedicalHistory: boolean;
   colorByGender: boolean;
-  showPhoto?: boolean; // 互換性のため残置（UIでは非使用）
 }
 
 // 全体のデータ構造
@@ -113,7 +111,9 @@ export interface FamilyTreeData {
 // デフォルト設定
 export const defaultSettings: DisplaySettings = {
   showName: true,
-  showNotes: false,
+  showBirthDate: true,
+  showRelationship: true,
+  showMedicalHistory: true,
   colorByGender: true,
 };
 
@@ -128,10 +128,12 @@ export const sampleData: FamilyTreeData = {
       gender: 'male',
       lifeStatus: 'alive',
       relationship: 'self',
+      birthDate: '1950-03-15',
       isRepresentative: true,
       spouseId: '2',
       livingTogether: true,
       livingGroup: 1,
+      medicalHistory: '高血圧',
     },
     {
       id: '2',
@@ -139,9 +141,11 @@ export const sampleData: FamilyTreeData = {
       gender: 'female',
       lifeStatus: 'alive',
       relationship: 'spouse',
+      birthDate: '1953-07-22',
       spouseId: '1',
       livingTogether: true,
       livingGroup: 1,
+      medicalHistory: '糖尿病',
     },
     {
       id: '3',
@@ -149,29 +153,15 @@ export const sampleData: FamilyTreeData = {
       gender: 'male',
       lifeStatus: 'alive',
       relationship: 'eldest_son',
+      birthDate: '1980-11-03',
       parentIds: ['1', '2'],
       livingTogether: true,
       livingGroup: 1,
     },
   ],
   edges: [
-    {
-      id: 'e1-3',
-      source: '1',
-      target: '3',
-      type: 'parent-child',
-    },
-    {
-      id: 'e2-3',
-      source: '2',
-      target: '3',
-      type: 'parent-child',
-    },
-    {
-      id: 'spouse-1-2',
-      source: '1',
-      target: '2',
-      type: 'spouse',
-    },
+    { id: 'e1-3', source: '1', target: '3', type: 'parent-child' },
+    { id: 'e2-3', source: '2', target: '3', type: 'parent-child' },
+    { id: 'spouse-1-2', source: '1', target: '2', type: 'spouse' },
   ],
 };
