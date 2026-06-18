@@ -1,5 +1,5 @@
 {
-  "name": "family-tree-app",
+  "name": "enzu",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,17 +9,14 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@types/dagre": "^0.7.53",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
-    "dagre": "^0.8.5",
     "html-to-image": "^1.11.11",
     "jspdf": "^4.2.0",
     "lucide-react": "^0.263.1",
     "next": "^14.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "reactflow": "^11.11.0",
     "tailwind-merge": "^2.2.0"
   },
   "devDependencies": {

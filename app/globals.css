@@ -37,13 +37,8 @@
   }
 }
 
-/* 配偶者の二重線エッジ */
-.react-flow__edge-path.spouse-edge {
-  stroke: #2563eb;
-  stroke-width: 2;
-}
-
-/* 配偶者線の二重線効果用の背景線 */
-.react-flow__edge.spouse-double .react-flow__edge-path {
-  stroke-width: 6;
+/* テキスト選択を抑止（キャンバスのドラッグ操作を快適に） */
+.touch-none {
+  -webkit-user-select: none;
+  user-select: none;
 }

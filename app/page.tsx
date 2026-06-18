@@ -1,5 +1,5 @@
-import { FamilyTreeApp } from "@/components/FamilyTreeApp";
+import { Genogram } from '@/components/Genogram';
 
 export default function Home() {
-  return <FamilyTreeApp />;
+  return <Genogram />;
 }

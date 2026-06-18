@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "家系図作成ツール - Family Tree Creator",
-  description: "無料で使えるオンライン家系図作成ツール。JSON形式で保存・読み込み可能。",
+  title: "縁図 Enzu — 人と人の関係を、1枚に",
+  description: "人と人の関係を1枚の図にする関係図ツール。医療のジェノグラムから相続関係図まで、表示を切り替えて業種を問わず使えます。",
 };
 
 export default function RootLayout({
